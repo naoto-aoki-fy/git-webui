@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import os
 import tempfile
 from dataclasses import dataclass
@@ -8,6 +9,30 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from aiohttp import web
+
+
+CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.json"))
+
+
+def _load_config() -> Dict[str, List[Dict[str, str]]]:
+    if not CONFIG_PATH.exists():
+        return {"ssh_keys": [], "git_users": []}
+
+    with CONFIG_PATH.open("r", encoding="utf-8") as config_file:
+        try:
+            data = json.load(config_file)
+        except json.JSONDecodeError as exc:  # noqa: BLE001
+            raise RuntimeError(f"Failed to parse configuration file {CONFIG_PATH}: {exc}") from exc
+
+    ssh_keys = data.get("ssh_keys", [])
+    git_users = data.get("git_users", [])
+    if not isinstance(ssh_keys, list) or not isinstance(git_users, list):
+        raise RuntimeError("Configuration file must define 'ssh_keys' and 'git_users' as lists")
+
+    return {"ssh_keys": ssh_keys, "git_users": git_users}
+
+
+APP_CONFIG = _load_config()
 
 
 @dataclass
@@ -67,6 +92,34 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         </section>
         """
     escaped_form = {key: html.escape(value) for key, value in form_values.items()}
+
+    ssh_key_options = "\n".join(
+        (
+            "            "
+            + f"<option value=\"{idx}\""
+            + (" selected" if str(idx) == escaped_form.get("ssh_key_selection", "") else "")
+            + f">{html.escape(option.get('label', option.get('path', 'Unknown Key')))}</option>"
+        )
+        for idx, option in enumerate(APP_CONFIG["ssh_keys"])
+    )
+    if ssh_key_options:
+        ssh_key_options = "            <option value=\"\"></option>\n" + ssh_key_options
+    else:
+        ssh_key_options = "            <option value=\"\">(No SSH keys configured)</option>"
+
+    git_user_options = "\n".join(
+        (
+            "            "
+            + f"<option value=\"{idx}\""
+            + (" selected" if str(idx) == escaped_form.get("git_user_selection", "") else "")
+            + f">{html.escape(option.get('label', option.get('name', 'Unknown User')))}</option>"
+        )
+        for idx, option in enumerate(APP_CONFIG["git_users"])
+    )
+    if git_user_options:
+        git_user_options = "            <option value=\"\"></option>\n" + git_user_options
+    else:
+        git_user_options = "            <option value=\"\">(No Git users configured)</option>"
     return f"""<!DOCTYPE html>
 <html lang=\"ja\">
 <head>
@@ -97,7 +150,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             display: block;
             margin-bottom: 0.5rem;
         }}
-        input[type=text], textarea {{
+        input[type=text], textarea, select {{
             width: 100%;
             padding: 0.75rem;
             border: 1px solid #ccc;
@@ -157,23 +210,21 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
                 <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\">
             </div>
         </div>
-        <div class=\"field-group\">
-            <div>
-                <label for=\"user_name\">Git User Name</label>
-                <input type=\"text\" id=\"user_name\" name=\"user_name\" value=\"{escaped_form.get('user_name', '')}\">
-            </div>
-            <div>
-                <label for=\"user_email\">Git User Email</label>
-                <input type=\"text\" id=\"user_email\" name=\"user_email\" value=\"{escaped_form.get('user_email', '')}\">
-            </div>
+        <div>
+            <label for=\"git_user\">Git User (Name &amp; Email)</label>
+            <select id=\"git_user\" name=\"git_user\">
+{git_user_options}
+            </select>
         </div>
         <div>
             <label for=\"commit_message\">Commit Message</label>
-            <input type=\"text\" id=\"commit_message\" name=\"commit_message\" placeholder=\"例: Apply patch from Web UI\" value=\"{escaped_form.get('commit_message', '')}\">
+            <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"例: Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
         </div>
         <div>
-            <label for=\"ssh_key\">SSH Private Key (必要に応じて。保存はされません)</label>
-            <textarea id=\"ssh_key\" name=\"ssh_key\" placeholder=\"-----BEGIN OPENSSH PRIVATE KEY-----\n...\n-----END OPENSSH PRIVATE KEY-----\"></textarea>
+            <label for=\"ssh_key_path\">SSH Private Key</label>
+            <select id=\"ssh_key_path\" name=\"ssh_key_path\">
+{ssh_key_options}
+            </select>
         </div>
         <div>
             <label for=\"patch\">Patch (git apply --3way -v で適用されます)</label>
@@ -195,19 +246,34 @@ async def index(request: web.Request) -> web.Response:
     form = await request.post()
     repository_url = form.get("repository_url", "").strip()
     branch = form.get("branch", "").strip()
-    user_name = form.get("user_name", "").strip()
-    user_email = form.get("user_email", "").strip()
-    commit_message = form.get("commit_message", "").strip()
+    git_user_selection = form.get("git_user", "").strip()
+    ssh_key_selection = form.get("ssh_key_path", "").strip()
+    commit_message = form.get("commit_message", "").replace("\r\n", "\n")
+    commit_message = commit_message.strip("\n")
     patch_content = form.get("patch", "")
-    ssh_key = form.get("ssh_key", "")
 
     form_values = {
         "repository_url": repository_url,
         "branch": branch,
-        "user_name": user_name,
-        "user_email": user_email,
         "commit_message": commit_message,
+        "git_user_selection": git_user_selection,
+        "ssh_key_selection": ssh_key_selection,
     }
+
+    user_name = ""
+    user_email = ""
+    if git_user_selection:
+        try:
+            user_idx = int(git_user_selection)
+            user_entry = APP_CONFIG["git_users"][user_idx]
+            user_name = user_entry.get("name", "").strip()
+            user_email = user_entry.get("email", "").strip()
+        except (ValueError, IndexError):
+            logs = [_timestamped("Invalid Git user selection.")]
+            return web.Response(
+                text=render_page(form_values, logs, False),
+                content_type="text/html",
+            )
 
     logs: List[str] = []
     success = False
@@ -228,14 +294,19 @@ async def index(request: web.Request) -> web.Response:
             repo_dir = workdir / "repo"
             env = os.environ.copy()
 
-            if ssh_key.strip():
-                fd, tmp_path = tempfile.mkstemp(prefix="git-webui-key-")
-                os.close(fd)
-                ssh_key_path = Path(tmp_path)
-                ssh_key_path.write_text(ssh_key, encoding="utf-8")
-                os.chmod(ssh_key_path, 0o600)
+            if ssh_key_selection:
+                try:
+                    key_idx = int(ssh_key_selection)
+                    key_entry = APP_CONFIG["ssh_keys"][key_idx]
+                    ssh_key_path = Path(key_entry.get("path", "")).expanduser()
+                except (ValueError, IndexError):
+                    raise RuntimeError("Invalid SSH key selection") from None
+
+                if not ssh_key_path or not ssh_key_path.exists():
+                    raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
+
                 env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no"
-                logs.append(_timestamped("SSH key written to temporary file."))
+                logs.append(_timestamped(f"Using SSH key: {ssh_key_path}"))
 
             logs.append(_timestamped(f"Cloning repository {repository_url}"))
             clone_result = await run_command(
@@ -343,11 +414,13 @@ async def index(request: web.Request) -> web.Response:
             )
 
             if commit_message:
+                commit_file = workdir / "commit_message.txt"
+                commit_file.write_text(commit_message, encoding="utf-8")
                 commit_result = await run_command(
                     "git",
                     "commit",
-                    "-m",
-                    commit_message,
+                    "-F",
+                    str(commit_file),
                     cwd=repo_dir,
                     env=env,
                     log=logs,
@@ -376,13 +449,6 @@ async def index(request: web.Request) -> web.Response:
     except Exception as exc:  # noqa: BLE001
         logs.append(_timestamped(f"ERROR: {exc}"))
         success = False
-    finally:
-        if ssh_key_path and ssh_key_path.exists():
-            try:
-                ssh_key_path.unlink()
-                logs.append(_timestamped("Temporary SSH key removed."))
-            except OSError as cleanup_error:
-                logs.append(_timestamped(f"Failed to remove temporary SSH key: {cleanup_error}"))
 
     return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
 

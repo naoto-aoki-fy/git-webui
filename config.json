@@ -1,0 +1,15 @@
+{
+  "ssh_keys": [
+    {
+      "label": "Example SSH Key",
+      "path": "/home/user/.ssh/id_ed25519"
+    }
+  ],
+  "git_users": [
+    {
+      "label": "Example User",
+      "name": "Example User",
+      "email": "user@example.com"
+    }
+  ]
+}
