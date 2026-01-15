@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from aiohttp import web
 CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.json"))
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
+KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
 
 def _load_config() -> Dict[str, List[Dict[str, str]]]:
     if not CONFIG_PATH.exists():
@@ -88,6 +90,22 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     if "\\" in raw_path or ":" in raw_path:
         return shlex.quote(PureWindowsPath(raw_path).as_posix())
     return shlex.quote(str(resolved_path))
+
+
+@contextmanager
+def _temporary_workspace(logs: Optional[List[str]] = None) -> Path:
+    if KEEP_TEMP:
+        tmpdir = tempfile.mkdtemp(prefix="git-webui-")
+        workdir = Path(tmpdir)
+        if logs is not None:
+            logs.append(_timestamped(f"Keeping temporary workspace at {workdir}"))
+        _log_debug(logs, "Temporary workspace will be preserved for debugging.")
+        try:
+            yield workdir
+        finally:
+            pass
+    with tempfile.TemporaryDirectory(prefix="git-webui-") as tmpdir:
+        yield Path(tmpdir)
 
 
 def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, success: Optional[bool] = None) -> str:
@@ -315,8 +333,7 @@ async def index(request: web.Request) -> web.Response:
     ssh_key_path: Optional[Path] = None
 
     try:
-        with tempfile.TemporaryDirectory(prefix="git-webui-") as tmpdir:
-            workdir = Path(tmpdir)
+        with _temporary_workspace(logs) as workdir:
             repo_dir = workdir / "repo"
             env = os.environ.copy()
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
@@ -426,7 +443,7 @@ async def index(request: web.Request) -> web.Response:
 
             patch_path = workdir / "patch.diff"
             logs.append(_timestamped(repr(patch_content)))
-            patch_path.write_text(patch_content, encoding="utf-8")
+            patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
             logs.append(_timestamped("Patch written to temporary file."))
             _log_debug(logs, f"Patch file saved to {patch_path}.")
 
@@ -467,7 +484,7 @@ async def index(request: web.Request) -> web.Response:
 
             if commit_message:
                 commit_file = workdir / "commit_message.txt"
-                commit_file.write_text(commit_message, encoding="utf-8")
+                commit_file.write_text(commit_message, encoding="utf-8", newline="\n")
                 _log_debug(logs, f"Commit message file saved to {commit_file}.")
                 _log_debug(logs, "Creating git commit.")
                 commit_result = await run_command(
