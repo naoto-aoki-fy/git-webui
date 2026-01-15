@@ -2,10 +2,12 @@ import asyncio
 import html
 import json
 import os
+import shlex
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from pathlib import PureWindowsPath
 from typing import Dict, List, Optional
 
 from aiohttp import web
@@ -74,6 +76,12 @@ async def run_command(
 def _timestamped(message: str) -> str:
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     return f"[{timestamp} UTC] {message}"
+
+
+def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
+    if "\\" in raw_path or ":" in raw_path:
+        return shlex.quote(PureWindowsPath(raw_path).as_posix())
+    return shlex.quote(str(resolved_path))
 
 
 def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, success: Optional[bool] = None) -> str:
@@ -298,14 +306,16 @@ async def index(request: web.Request) -> web.Response:
                 try:
                     key_idx = int(ssh_key_selection)
                     key_entry = APP_CONFIG["ssh_keys"][key_idx]
-                    ssh_key_path = Path(key_entry.get("path", "")).expanduser()
+                    raw_ssh_key_path = key_entry.get("path", "")
+                    ssh_key_path = Path(raw_ssh_key_path).expanduser()
                 except (ValueError, IndexError):
                     raise RuntimeError("Invalid SSH key selection") from None
 
                 if not ssh_key_path or not ssh_key_path.exists():
                     raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
 
-                env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_path} -o StrictHostKeyChecking=no"
+                ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
+                env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
                 logs.append(_timestamped(f"Using SSH key: {ssh_key_path}"))
 
             logs.append(_timestamped(f"Cloning repository {repository_url}"))
