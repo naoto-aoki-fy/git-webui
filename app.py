@@ -153,6 +153,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         git_user_options = "            <option value=\"\"></option>\n" + git_user_options
     else:
         git_user_options = "            <option value=\"\">(No Git users configured)</option>"
+    allow_empty_checked = " checked" if escaped_form.get("allow_empty_commit") == "true" else ""
     return f"""<!DOCTYPE html>
 <html lang=\"ja\">
 <head>
@@ -254,6 +255,12 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"例: Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
         </div>
         <div>
+            <label>
+                <input type=\"checkbox\" id=\"allow_empty_commit\" name=\"allow_empty_commit\" value=\"true\"{allow_empty_checked}>
+                空コミットを許可する
+            </label>
+        </div>
+        <div>
             <label for=\"ssh_key_path\">SSH Private Key</label>
             <select id=\"ssh_key_path\" name=\"ssh_key_path\">
 {ssh_key_options}
@@ -261,12 +268,21 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         </div>
         <div>
             <label for=\"patch\">Patch (git apply --3way -v で適用されます)</label>
-            <textarea id=\"patch\" name=\"patch\" required placeholder=\"diff --git a/...\n\"></textarea>
+            <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
         </div>
         <button type=\"submit\">Apply Patch &amp; Push</button>
     </form>
     {log_section}
 </main>
+<script>
+    const allowEmptyCommit = document.getElementById("allow_empty_commit");
+    const patchField = document.getElementById("patch");
+    const togglePatchRequired = () => {{
+        patchField.required = !allowEmptyCommit.checked;
+    }};
+    togglePatchRequired();
+    allowEmptyCommit.addEventListener("change", togglePatchRequired);
+</script>
 </body>
 </html>
 """
@@ -285,6 +301,7 @@ async def index(request: web.Request) -> web.Response:
     ssh_key_selection = form.get("ssh_key_path", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
+    allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
 
     _log_debug(logs, f"Parsed repository_url='{repository_url}'.")
@@ -292,12 +309,14 @@ async def index(request: web.Request) -> web.Response:
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
     _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
+    _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
 
     form_values = {
         "repository_url": repository_url,
         "branch": branch,
         "commit_message": commit_message,
+        "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
         "ssh_key_selection": ssh_key_selection,
     }
@@ -326,9 +345,9 @@ async def index(request: web.Request) -> web.Response:
         logs.append(_timestamped("Repository URL is required."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
-    if not patch_content.strip():
+    if not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
-        logs.append(_timestamped("Patch content is required."))
+        logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
     ssh_key_path: Optional[Path] = None
@@ -442,26 +461,30 @@ async def index(request: web.Request) -> web.Response:
                     log=logs,
                 )
 
-            patch_path = workdir / "patch.diff"
-            logs.append(_timestamped(patch_content))
-            patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
-            logs.append(_timestamped("Patch written to temporary file."))
-            _log_debug(logs, f"Patch file saved to {patch_path}.")
+            if patch_content.strip():
+                patch_path = workdir / "patch.diff"
+                logs.append(_timestamped(patch_content))
+                patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
+                logs.append(_timestamped("Patch written to temporary file."))
+                _log_debug(logs, f"Patch file saved to {patch_path}.")
 
-            _log_debug(logs, "Applying patch with git apply --3way -v.")
-            apply_result = await run_command(
-                "git",
-                "apply",
-                "--3way",
-                "-v",
-                str(patch_path),
-                cwd=repo_dir,
-                env=env,
-                log=logs,
-            )
-            if apply_result.returncode != 0:
-                raise RuntimeError("git apply failed")
-            _log_debug(logs, "Patch applied successfully.")
+                _log_debug(logs, "Applying patch with git apply --3way -v.")
+                apply_result = await run_command(
+                    "git",
+                    "apply",
+                    "--3way",
+                    "-v",
+                    str(patch_path),
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if apply_result.returncode != 0:
+                    raise RuntimeError("git apply failed")
+                _log_debug(logs, "Patch applied successfully.")
+            else:
+                logs.append(_timestamped("No patch provided; skipping git apply."))
+                _log_debug(logs, "Patch skipped because content is empty.")
 
             _log_debug(logs, "Staging changes with git add -A.")
             await run_command(
@@ -488,12 +511,17 @@ async def index(request: web.Request) -> web.Response:
                 commit_file.write_text(commit_message, encoding="utf-8", newline="\n")
                 _log_debug(logs, f"Commit message file saved to {commit_file}.")
                 _log_debug(logs, "Creating git commit.")
-                commit_result = await run_command(
+                commit_command = [
                     "git",
-                    "-c", "core.hooksPath=" + DEVNULL,
+                    "-c",
+                    "core.hooksPath=" + DEVNULL,
                     "commit",
-                    "-F",
-                    str(commit_file),
+                ]
+                if allow_empty_commit:
+                    commit_command.append("--allow-empty")
+                commit_command.extend(["-F", str(commit_file)])
+                commit_result = await run_command(
+                    *commit_command,
                     cwd=repo_dir,
                     env=env,
                     log=logs,
