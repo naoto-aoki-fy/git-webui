@@ -346,6 +346,7 @@ async def index(request: web.Request) -> web.Response:
             clone_result = await run_command(
                 "git",
                 "clone",
+                "--no-verify",
                 repository_url,
                 str(repo_dir),
                 env=env,
@@ -390,6 +391,7 @@ async def index(request: web.Request) -> web.Response:
                 checkout_result = await run_command(
                     "git",
                     "checkout",
+                    "--no-verify",
                     branch,
                     cwd=repo_dir,
                     env=env,
@@ -401,6 +403,7 @@ async def index(request: web.Request) -> web.Response:
                     create_branch_result = await run_command(
                         "git",
                         "checkout",
+                        "--no-verify",
                         "-b",
                         branch,
                         cwd=repo_dir,
@@ -470,6 +473,7 @@ async def index(request: web.Request) -> web.Response:
                 commit_result = await run_command(
                     "git",
                     "commit",
+                    "--no-verify",
                     "-F",
                     str(commit_file),
                     cwd=repo_dir,
@@ -488,6 +492,7 @@ async def index(request: web.Request) -> web.Response:
                 push_result = await run_command(
                     "git",
                     "push",
+                    "--no-verify",
                     "origin",
                     f"HEAD:{branch}" if branch else "HEAD",
                     cwd=repo_dir,
