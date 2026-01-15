@@ -379,7 +379,7 @@ async def index(request: web.Request) -> web.Response:
                 )
 
             patch_path = workdir / "patch.diff"
-            patch_path.write_text(patch_content)
+            patch_path.write_text(patch_content, encoding="utf-8")
             logs.append(_timestamped("Patch written to temporary file."))
 
             apply_result = await run_command(
