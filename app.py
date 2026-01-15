@@ -279,6 +279,13 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const patchField = document.getElementById("patch");
     const togglePatchRequired = () => {{
         patchField.required = !allowEmptyCommit.checked;
+        if (allowEmptyCommit.checked) {{
+            patchField.removeAttribute("name");
+            patchField.setAttribute("disabled", "");
+        }} else {{
+            patchField.setAttribute("name", "patch");
+            patchField.removeAttribute("disabled", "");
+        }}
     }};
     togglePatchRequired();
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
