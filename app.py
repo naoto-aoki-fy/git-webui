@@ -12,9 +12,9 @@ from typing import Dict, List, Optional
 
 from aiohttp import web
 
-
 CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.json"))
 
+DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 
 def _load_config() -> Dict[str, List[Dict[str, str]]]:
     if not CONFIG_PATH.exists():
@@ -345,8 +345,8 @@ async def index(request: web.Request) -> web.Response:
             _log_debug(logs, "Starting git clone.")
             clone_result = await run_command(
                 "git",
+                "-c", "core.hooksPath=" + DEVNULL,
                 "clone",
-                "--no-verify",
                 repository_url,
                 str(repo_dir),
                 env=env,
@@ -390,8 +390,8 @@ async def index(request: web.Request) -> web.Response:
                 _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_command(
                     "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
                     "checkout",
-                    "--no-verify",
                     branch,
                     cwd=repo_dir,
                     env=env,
@@ -402,8 +402,8 @@ async def index(request: web.Request) -> web.Response:
                     _log_debug(logs, f"Creating new branch '{branch}'.")
                     create_branch_result = await run_command(
                         "git",
+                        "-c", "core.hooksPath=" + DEVNULL,
                         "checkout",
-                        "--no-verify",
                         "-b",
                         branch,
                         cwd=repo_dir,
@@ -472,8 +472,8 @@ async def index(request: web.Request) -> web.Response:
                 _log_debug(logs, "Creating git commit.")
                 commit_result = await run_command(
                     "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
                     "commit",
-                    "--no-verify",
                     "-F",
                     str(commit_file),
                     cwd=repo_dir,
@@ -491,8 +491,8 @@ async def index(request: web.Request) -> web.Response:
                 _log_debug(logs, "Pushing commit to origin.")
                 push_result = await run_command(
                     "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
                     "push",
-                    "--no-verify",
                     "origin",
                     f"HEAD:{branch}" if branch else "HEAD",
                     cwd=repo_dir,
