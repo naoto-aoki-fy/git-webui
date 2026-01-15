@@ -78,6 +78,12 @@ def _timestamped(message: str) -> str:
     return f"[{timestamp} UTC] {message}"
 
 
+def _log_debug(logs: Optional[List[str]], message: str) -> None:
+    if logs is None:
+        return
+    logs.append(_timestamped(f"DEBUG: {message}"))
+
+
 def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     if "\\" in raw_path or ":" in raw_path:
         return shlex.quote(PureWindowsPath(raw_path).as_posix())
@@ -251,6 +257,8 @@ async def index(request: web.Request) -> web.Response:
     if request.method == "GET":
         return web.Response(text=render_page({}, None), content_type="text/html")
 
+    logs: List[str] = []
+    _log_debug(logs, "Received POST request.")
     form = await request.post()
     repository_url = form.get("repository_url", "").strip()
     branch = form.get("branch", "").strip()
@@ -258,7 +266,14 @@ async def index(request: web.Request) -> web.Response:
     ssh_key_selection = form.get("ssh_key_path", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
-    patch_content = form.get("patch", "")
+    patch_content = form.get("patch", "").replace("\r\n", "\n")
+
+    _log_debug(logs, f"Parsed repository_url='{repository_url}'.")
+    _log_debug(logs, f"Parsed branch='{branch or '(default)'}'.")
+    _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
+    _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
+    _log_debug(logs, f"Commit message length={len(commit_message)}.")
+    _log_debug(logs, f"Patch length={len(patch_content)}.")
 
     form_values = {
         "repository_url": repository_url,
@@ -276,6 +291,7 @@ async def index(request: web.Request) -> web.Response:
             user_entry = APP_CONFIG["git_users"][user_idx]
             user_name = user_entry.get("name", "").strip()
             user_email = user_entry.get("email", "").strip()
+            _log_debug(logs, f"Resolved git user index={user_idx} name='{user_name}'.")
         except (ValueError, IndexError):
             logs = [_timestamped("Invalid Git user selection.")]
             return web.Response(
@@ -283,14 +299,16 @@ async def index(request: web.Request) -> web.Response:
                 content_type="text/html",
             )
 
-    logs: List[str] = []
+    _log_debug(logs, "Validated git user selection.")
     success = False
 
     if not repository_url:
+        _log_debug(logs, "Repository URL missing.")
         logs.append(_timestamped("Repository URL is required."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
     if not patch_content.strip():
+        _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
@@ -301,6 +319,8 @@ async def index(request: web.Request) -> web.Response:
             workdir = Path(tmpdir)
             repo_dir = workdir / "repo"
             env = os.environ.copy()
+            _log_debug(logs, f"Created temporary workspace at {workdir}.")
+            _log_debug(logs, f"Repository directory will be {repo_dir}.")
 
             if ssh_key_selection:
                 try:
@@ -317,8 +337,12 @@ async def index(request: web.Request) -> web.Response:
                 ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
                 env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
                 logs.append(_timestamped(f"Using SSH key: {ssh_key_path}"))
+                _log_debug(logs, f"GIT_SSH_COMMAND set to: {env['GIT_SSH_COMMAND']}")
+            else:
+                _log_debug(logs, "No SSH key selected; using default SSH configuration.")
 
             logs.append(_timestamped(f"Cloning repository {repository_url}"))
+            _log_debug(logs, "Starting git clone.")
             clone_result = await run_command(
                 "git",
                 "clone",
@@ -329,8 +353,10 @@ async def index(request: web.Request) -> web.Response:
             )
             if clone_result.returncode != 0:
                 raise RuntimeError("git clone failed")
+            _log_debug(logs, "git clone completed.")
 
             if user_name:
+                _log_debug(logs, "Configuring git user.name.")
                 config_result = await run_command(
                     "git",
                     "config",
@@ -342,8 +368,10 @@ async def index(request: web.Request) -> web.Response:
                 )
                 if config_result.returncode != 0:
                     raise RuntimeError("Failed to set git user.name")
+                _log_debug(logs, "git user.name configured.")
 
             if user_email:
+                _log_debug(logs, "Configuring git user.email.")
                 config_result = await run_command(
                     "git",
                     "config",
@@ -355,8 +383,10 @@ async def index(request: web.Request) -> web.Response:
                 )
                 if config_result.returncode != 0:
                     raise RuntimeError("Failed to set git user.email")
+                _log_debug(logs, "git user.email configured.")
 
             if branch:
+                _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_command(
                     "git",
                     "checkout",
@@ -367,6 +397,7 @@ async def index(request: web.Request) -> web.Response:
                 )
                 if checkout_result.returncode != 0:
                     logs.append(_timestamped(f"Branch {branch} not found. Creating new branch."))
+                    _log_debug(logs, f"Creating new branch '{branch}'.")
                     create_branch_result = await run_command(
                         "git",
                         "checkout",
@@ -378,7 +409,9 @@ async def index(request: web.Request) -> web.Response:
                     )
                     if create_branch_result.returncode != 0:
                         raise RuntimeError("Failed to create branch")
+                    _log_debug(logs, f"Branch '{branch}' created.")
             else:
+                _log_debug(logs, "No branch specified; using default branch.")
                 await run_command(
                     "git",
                     "status",
@@ -389,9 +422,12 @@ async def index(request: web.Request) -> web.Response:
                 )
 
             patch_path = workdir / "patch.diff"
+            logs.append(_timestamped(repr(patch_content)))
             patch_path.write_text(patch_content, encoding="utf-8")
             logs.append(_timestamped("Patch written to temporary file."))
+            _log_debug(logs, f"Patch file saved to {patch_path}.")
 
+            _log_debug(logs, "Applying patch with git apply --3way -v.")
             apply_result = await run_command(
                 "git",
                 "apply",
@@ -404,7 +440,9 @@ async def index(request: web.Request) -> web.Response:
             )
             if apply_result.returncode != 0:
                 raise RuntimeError("git apply failed")
+            _log_debug(logs, "Patch applied successfully.")
 
+            _log_debug(logs, "Staging changes with git add -A.")
             await run_command(
                 "git",
                 "add",
@@ -414,6 +452,7 @@ async def index(request: web.Request) -> web.Response:
                 log=logs,
             )
 
+            _log_debug(logs, "Checking git status after staging.")
             await run_command(
                 "git",
                 "status",
@@ -426,6 +465,8 @@ async def index(request: web.Request) -> web.Response:
             if commit_message:
                 commit_file = workdir / "commit_message.txt"
                 commit_file.write_text(commit_message, encoding="utf-8")
+                _log_debug(logs, f"Commit message file saved to {commit_file}.")
+                _log_debug(logs, "Creating git commit.")
                 commit_result = await run_command(
                     "git",
                     "commit",
@@ -437,10 +478,13 @@ async def index(request: web.Request) -> web.Response:
                 )
                 if commit_result.returncode != 0:
                     raise RuntimeError("git commit failed")
+                _log_debug(logs, "git commit completed.")
             else:
                 logs.append(_timestamped("No commit message provided. Skipping commit."))
+                _log_debug(logs, "Commit skipped due to empty commit message.")
 
             if commit_message:
+                _log_debug(logs, "Pushing commit to origin.")
                 push_result = await run_command(
                     "git",
                     "push",
@@ -453,11 +497,14 @@ async def index(request: web.Request) -> web.Response:
                 if push_result.returncode != 0:
                     raise RuntimeError("git push failed")
                 logs.append(_timestamped("Patch applied, committed, and pushed successfully."))
+                _log_debug(logs, "git push completed.")
             else:
                 logs.append(_timestamped("Push skipped because no commit was created."))
+                _log_debug(logs, "Push skipped due to missing commit.")
             success = True
     except Exception as exc:  # noqa: BLE001
         logs.append(_timestamped(f"ERROR: {exc}"))
+        _log_debug(logs, "Request failed with exception.")
         success = False
 
     return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
