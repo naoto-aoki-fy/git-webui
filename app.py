@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
 from typing import Dict, List, Optional
+import traceback
 
 from aiohttp import web
 
@@ -442,7 +443,7 @@ async def index(request: web.Request) -> web.Response:
                 )
 
             patch_path = workdir / "patch.diff"
-            logs.append(_timestamped(repr(patch_content)))
+            logs.append(_timestamped(patch_content))
             patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
             logs.append(_timestamped("Patch written to temporary file."))
             _log_debug(logs, f"Patch file saved to {patch_path}.")
@@ -525,7 +526,9 @@ async def index(request: web.Request) -> web.Response:
                 _log_debug(logs, "Push skipped due to missing commit.")
             success = True
     except Exception as exc:  # noqa: BLE001
+        tb_str = traceback.format_exc()
         logs.append(_timestamped(f"ERROR: {exc}"))
+        logs.append(_timestamped(tb_str))
         _log_debug(logs, "Request failed with exception.")
         success = False
 
