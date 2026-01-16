@@ -154,6 +154,10 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     else:
         git_user_options = "            <option value=\"\">(No Git users configured)</option>"
     allow_empty_checked = " checked" if escaped_form.get("allow_empty_commit") == "true" else ""
+    branch_mode = escaped_form.get("branch_mode", "default")
+    branch_mode_default_checked = " checked" if branch_mode == "default" else ""
+    branch_mode_commit_checked = " checked" if branch_mode == "from_commit" else ""
+    branch_mode_orphan_checked = " checked" if branch_mode == "orphan" else ""
     return f"""<!DOCTYPE html>
 <html lang=\"ja\">
 <head>
@@ -227,6 +231,23 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 1rem;
         }}
+        .toggle-group {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+        }}
+        .toggle-group label {{
+            font-weight: 500;
+            margin-bottom: 0;
+        }}
+        .subtle {{
+            color: #4a5568;
+            font-size: 0.9rem;
+        }}
+        .hidden {{
+            display: none;
+        }}
     </style>
 </head>
 <body>
@@ -245,28 +266,50 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             </div>
         </div>
         <div>
+            <label>Branch creation mode</label>
+            <div class=\"toggle-group\" role=\"radiogroup\" aria-label=\"Branch creation mode\">
+                <label>
+                    <input type=\"radio\" name=\"branch_mode\" value=\"default\"{branch_mode_default_checked}>
+                    既存の動作 (ブランチ指定時はcheckout)
+                </label>
+                <label>
+                    <input type=\"radio\" name=\"branch_mode\" value=\"from_commit\"{branch_mode_commit_checked}>
+                    指定コミットから新規ブランチを作成
+                </label>
+                <label>
+                    <input type=\"radio\" name=\"branch_mode\" value=\"orphan\"{branch_mode_orphan_checked}>
+                    orphanブランチを作成
+                </label>
+            </div>
+            <p class=\"subtle\">指定コミット/Orphanモードではブランチ名が必須です。</p>
+        </div>
+        <div id=\"commit_id_group\" class=\"hidden\">
+            <label for=\"base_commit\">Base Commit ID (例: a1b2c3d)</label>
+            <input type=\"text\" id=\"base_commit\" name=\"base_commit\" value=\"{escaped_form.get('base_commit', '')}\">
+        </div>
+        <div id=\"git_user_group\">
             <label for=\"git_user\">Git User (Name &amp; Email)</label>
             <select id=\"git_user\" name=\"git_user\">
 {git_user_options}
             </select>
         </div>
-        <div>
+        <div id=\"commit_message_group\">
             <label for=\"commit_message\">Commit Message</label>
             <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"例: Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
         </div>
-        <div>
+        <div id=\"allow_empty_group\">
             <label>
                 <input type=\"checkbox\" id=\"allow_empty_commit\" name=\"allow_empty_commit\" value=\"true\"{allow_empty_checked}>
                 空コミットを許可する
             </label>
         </div>
-        <div>
+        <div id=\"ssh_key_group\">
             <label for=\"ssh_key_path\">SSH Private Key</label>
             <select id=\"ssh_key_path\" name=\"ssh_key_path\">
 {ssh_key_options}
             </select>
         </div>
-        <div>
+        <div id=\"patch_group\">
             <label for=\"patch\">Patch (git apply --3way -v で適用されます)</label>
             <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
         </div>
@@ -277,6 +320,17 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
 <script>
     const allowEmptyCommit = document.getElementById("allow_empty_commit");
     const patchField = document.getElementById("patch");
+    const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
+    const commitIdGroup = document.getElementById("commit_id_group");
+    const commitIdField = document.getElementById("base_commit");
+    const gitUserGroup = document.getElementById("git_user_group");
+    const commitMessageGroup = document.getElementById("commit_message_group");
+    const allowEmptyGroup = document.getElementById("allow_empty_group");
+    const sshKeyGroup = document.getElementById("ssh_key_group");
+    const patchGroup = document.getElementById("patch_group");
+    const gitUserField = document.getElementById("git_user");
+    const commitMessageField = document.getElementById("commit_message");
+    const sshKeyField = document.getElementById("ssh_key_path");
     const togglePatchRequired = () => {{
         patchField.required = !allowEmptyCommit.checked;
         if (allowEmptyCommit.checked) {{
@@ -287,8 +341,41 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             patchField.removeAttribute("disabled", "");
         }}
     }};
+    const toggleCommitField = () => {{
+        const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
+        const needsCommit = selectedMode === "from_commit";
+        commitIdGroup.classList.toggle("hidden", !needsCommit);
+        if (needsCommit) {{
+            commitIdField.removeAttribute("disabled");
+        }} else {{
+            commitIdField.setAttribute("disabled", "");
+        }}
+        const hideDetails = selectedMode === "from_commit";
+        gitUserGroup.classList.toggle("hidden", hideDetails);
+        commitMessageGroup.classList.toggle("hidden", hideDetails);
+        allowEmptyGroup.classList.toggle("hidden", hideDetails);
+        sshKeyGroup.classList.toggle("hidden", hideDetails);
+        patchGroup.classList.toggle("hidden", hideDetails);
+        if (hideDetails) {{
+            gitUserField.setAttribute("disabled", "");
+            commitMessageField.setAttribute("disabled", "");
+            allowEmptyCommit.setAttribute("disabled", "");
+            sshKeyField.setAttribute("disabled", "");
+            patchField.setAttribute("disabled", "");
+        }} else {{
+            gitUserField.removeAttribute("disabled");
+            commitMessageField.removeAttribute("disabled");
+            allowEmptyCommit.removeAttribute("disabled");
+            sshKeyField.removeAttribute("disabled");
+            togglePatchRequired();
+        }}
+    }};
     togglePatchRequired();
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
+    branchModeInputs.forEach((input) => {{
+        input.addEventListener("change", toggleCommitField);
+    }});
+    toggleCommitField();
 </script>
 </body>
 </html>
@@ -306,13 +393,21 @@ async def index(request: web.Request) -> web.Response:
     branch = form.get("branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
     ssh_key_selection = form.get("ssh_key_path", "").strip()
+    branch_mode = form.get("branch_mode", "default").strip()
+    base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
+    if branch_mode == "from_commit":
+        commit_message = ""
+        allow_empty_commit = False
+        patch_content = ""
 
     _log_debug(logs, f"Parsed repository_url='{repository_url}'.")
     _log_debug(logs, f"Parsed branch='{branch or '(default)'}'.")
+    _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
+    _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
     _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
@@ -326,6 +421,8 @@ async def index(request: web.Request) -> web.Response:
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
         "ssh_key_selection": ssh_key_selection,
+        "branch_mode": branch_mode,
+        "base_commit": base_commit,
     }
 
     user_name = ""
@@ -352,9 +449,17 @@ async def index(request: web.Request) -> web.Response:
         logs.append(_timestamped("Repository URL is required."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
-    if not patch_content.strip() and not allow_empty_commit:
+    if branch_mode != "from_commit" and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
+        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+    if branch_mode == "from_commit" and not base_commit:
+        _log_debug(logs, "Base commit missing for branch creation.")
+        logs.append(_timestamped("Base commit ID is required when creating a branch from a commit."))
+        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+    if branch_mode in {"from_commit", "orphan"} and not branch:
+        _log_debug(logs, "Branch name missing for selected branch mode.")
+        logs.append(_timestamped("Branch name is required for commit/orphan branch creation modes."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
     ssh_key_path: Optional[Path] = None
@@ -430,7 +535,65 @@ async def index(request: web.Request) -> web.Response:
                     raise RuntimeError("Failed to set git user.email")
                 _log_debug(logs, "git user.email configured.")
 
-            if branch:
+            if branch_mode == "from_commit":
+                logs.append(_timestamped(f"Creating branch {branch} from commit {base_commit}."))
+                _log_debug(logs, f"Creating branch '{branch}' from commit '{base_commit}'.")
+                create_branch_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "checkout",
+                    "-b",
+                    branch,
+                    base_commit,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if create_branch_result.returncode != 0:
+                    raise RuntimeError("Failed to create branch from commit")
+                _log_debug(logs, f"Branch '{branch}' created from commit.")
+                _log_debug(logs, "Pushing branch created from commit to origin.")
+                push_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "push",
+                    "origin",
+                    branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if push_result.returncode != 0:
+                    raise RuntimeError("git push failed")
+                logs.append(_timestamped("Branch created from commit and pushed successfully."))
+                success = True
+                return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
+            elif branch_mode == "orphan":
+                logs.append(_timestamped(f"Creating orphan branch {branch}."))
+                _log_debug(logs, f"Creating orphan branch '{branch}'.")
+                create_branch_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "checkout",
+                    "--orphan",
+                    branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if create_branch_result.returncode != 0:
+                    raise RuntimeError("Failed to create orphan branch")
+                _log_debug(logs, "Removing working tree files for orphan branch.")
+                await run_command(
+                    "git",
+                    "rm",
+                    "-rf",
+                    ".",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+            elif branch:
                 _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_command(
                     "git",
