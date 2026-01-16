@@ -155,6 +155,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         git_user_options = "            <option value=\"\">(No Git users configured)</option>"
     allow_empty_checked = " checked" if escaped_form.get("allow_empty_commit") == "true" else ""
     branch_mode = escaped_form.get("branch_mode", "default")
+    new_branch_name = escaped_form.get("new_branch", "")
     branch_mode_default_checked = " checked" if branch_mode == "default" else ""
     branch_mode_commit_checked = " checked" if branch_mode == "from_commit" else ""
     branch_mode_orphan_checked = " checked" if branch_mode == "orphan" else ""
@@ -281,7 +282,11 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
                     Create an orphan branch
                 </label>
             </div>
-            <p class=\"subtle\">A branch name is required for commit-based or orphan modes.</p>
+            <p class=\"subtle\">A new branch name is required for commit-based or orphan modes.</p>
+        </div>
+        <div id=\"new_branch_group\" class=\"hidden\">
+            <label for=\"new_branch\">New Branch Name</label>
+            <input type=\"text\" id=\"new_branch\" name=\"new_branch\" value=\"{new_branch_name}\">
         </div>
         <div id=\"commit_id_group\" class=\"hidden\">
             <label for=\"base_commit\">Base Commit ID (e.g., a1b2c3d)</label>
@@ -323,6 +328,9 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
+    const branchField = document.getElementById("branch");
+    const newBranchGroup = document.getElementById("new_branch_group");
+    const newBranchField = document.getElementById("new_branch");
     const gitUserGroup = document.getElementById("git_user_group");
     const commitMessageGroup = document.getElementById("commit_message_group");
     const allowEmptyGroup = document.getElementById("allow_empty_group");
@@ -344,11 +352,22 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const toggleCommitField = () => {{
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
         const needsCommit = selectedMode === "from_commit";
+        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan";
         commitIdGroup.classList.toggle("hidden", !needsCommit);
         if (needsCommit) {{
             commitIdField.removeAttribute("disabled");
         }} else {{
             commitIdField.setAttribute("disabled", "");
+        }}
+        newBranchGroup.classList.toggle("hidden", !needsNewBranch);
+        if (needsNewBranch) {{
+            newBranchField.removeAttribute("disabled");
+            newBranchField.setAttribute("required", "");
+            branchField.setAttribute("disabled", "");
+        }} else {{
+            newBranchField.setAttribute("disabled", "");
+            newBranchField.removeAttribute("required");
+            branchField.removeAttribute("disabled");
         }}
         const hideDetails = selectedMode === "from_commit";
         gitUserGroup.classList.toggle("hidden", hideDetails);
@@ -391,6 +410,7 @@ async def index(request: web.Request) -> web.Response:
     form = await request.post()
     repository_url = form.get("repository_url", "").strip()
     branch = form.get("branch", "").strip()
+    new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
     ssh_key_selection = form.get("ssh_key_path", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
@@ -406,6 +426,7 @@ async def index(request: web.Request) -> web.Response:
 
     _log_debug(logs, f"Parsed repository_url='{repository_url}'.")
     _log_debug(logs, f"Parsed branch='{branch or '(default)'}'.")
+    _log_debug(logs, f"Parsed new_branch='{new_branch or '(none)'}'.")
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
@@ -414,9 +435,11 @@ async def index(request: web.Request) -> web.Response:
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
 
+    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else branch
     form_values = {
         "repository_url": repository_url,
         "branch": branch,
+        "new_branch": new_branch,
         "commit_message": commit_message,
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
@@ -457,9 +480,9 @@ async def index(request: web.Request) -> web.Response:
         _log_debug(logs, "Base commit missing for branch creation.")
         logs.append(_timestamped("Base commit ID is required when creating a branch from a commit."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
-    if branch_mode in {"from_commit", "orphan"} and not branch:
-        _log_debug(logs, "Branch name missing for selected branch mode.")
-        logs.append(_timestamped("Branch name is required for commit/orphan branch creation modes."))
+    if branch_mode in {"from_commit", "orphan"} and not new_branch:
+        _log_debug(logs, "New branch name missing for selected branch mode.")
+        logs.append(_timestamped("New branch name is required for commit/orphan branch creation modes."))
         return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
 
     ssh_key_path: Optional[Path] = None
@@ -536,14 +559,14 @@ async def index(request: web.Request) -> web.Response:
                 _log_debug(logs, "git user.email configured.")
 
             if branch_mode == "from_commit":
-                logs.append(_timestamped(f"Creating branch {branch} from commit {base_commit}."))
-                _log_debug(logs, f"Creating branch '{branch}' from commit '{base_commit}'.")
+                logs.append(_timestamped(f"Creating branch {new_branch} from commit {base_commit}."))
+                _log_debug(logs, f"Creating branch '{new_branch}' from commit '{base_commit}'.")
                 create_branch_result = await run_command(
                     "git",
                     "-c", "core.hooksPath=" + DEVNULL,
                     "checkout",
                     "-b",
-                    branch,
+                    new_branch,
                     base_commit,
                     cwd=repo_dir,
                     env=env,
@@ -551,14 +574,14 @@ async def index(request: web.Request) -> web.Response:
                 )
                 if create_branch_result.returncode != 0:
                     raise RuntimeError("Failed to create branch from commit")
-                _log_debug(logs, f"Branch '{branch}' created from commit.")
+                _log_debug(logs, f"Branch '{new_branch}' created from commit.")
                 _log_debug(logs, "Pushing branch created from commit to origin.")
                 push_result = await run_command(
                     "git",
                     "-c", "core.hooksPath=" + DEVNULL,
                     "push",
                     "origin",
-                    branch,
+                    new_branch,
                     cwd=repo_dir,
                     env=env,
                     log=logs,
@@ -569,14 +592,14 @@ async def index(request: web.Request) -> web.Response:
                 success = True
                 return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
             elif branch_mode == "orphan":
-                logs.append(_timestamped(f"Creating orphan branch {branch}."))
-                _log_debug(logs, f"Creating orphan branch '{branch}'.")
+                logs.append(_timestamped(f"Creating orphan branch {new_branch}."))
+                _log_debug(logs, f"Creating orphan branch '{new_branch}'.")
                 create_branch_result = await run_command(
                     "git",
                     "-c", "core.hooksPath=" + DEVNULL,
                     "checkout",
                     "--orphan",
-                    branch,
+                    new_branch,
                     cwd=repo_dir,
                     env=env,
                     log=logs,
@@ -710,7 +733,7 @@ async def index(request: web.Request) -> web.Response:
                     "-c", "core.hooksPath=" + DEVNULL,
                     "push",
                     "origin",
-                    f"HEAD:{branch}" if branch else "HEAD",
+                    f"HEAD:{target_branch}" if target_branch else "HEAD",
                     cwd=repo_dir,
                     env=env,
                     log=logs,
