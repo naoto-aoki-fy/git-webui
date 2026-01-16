@@ -40,21 +40,23 @@ The application listens on `http://0.0.0.0:8080/` by default.
 
 ## Configuration
 
-The application reads `config.json` (or the path specified via the `GIT_WEBUI_CONFIG` environment variable) on startup. The file must be a JSON object with two lists:
+The application reads `config.toml` (or the path specified via the `GIT_WEBUI_CONFIG` environment variable) on startup. The file must define two array tables:
 
-```json
-{
-  "ssh_keys": [
-    { "label": "Example SSH Key", "path": "/home/user/.ssh/id_ed25519" }
-  ],
-  "git_users": [
-    { "label": "Example User", "name": "Example User", "email": "user@example.com" }
-  ]
-}
+```toml
+[[ssh_keys]]
+label = "Example SSH Key"
+path = "/home/user/.ssh/id_ed25519"
+default = true
+
+[[git_users]]
+label = "Example User"
+name = "Example User"
+email = "user@example.com"
+default = true
 ```
 
-- `ssh_keys`: the path is used directly with `ssh -i`. The label is shown in the dropdown.
-- `git_users`: the name/email pair is applied via `git config` when selected.
+- `ssh_keys`: the path is used directly with `ssh -i`. The label is shown in the dropdown. Set `default = true` to preselect a key in the UI.
+- `git_users`: the name/email pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI.
 
 If either list is empty the corresponding dropdown shows that no options are available.
 

@@ -1,9 +1,9 @@
 import asyncio
 import html
-import json
 import os
 import shlex
 import tempfile
+import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,7 +14,7 @@ import traceback
 
 from aiohttp import web
 
-CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.json"))
+CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.toml"))
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
@@ -23,10 +23,10 @@ def _load_config() -> Dict[str, List[Dict[str, str]]]:
     if not CONFIG_PATH.exists():
         return {"ssh_keys": [], "git_users": []}
 
-    with CONFIG_PATH.open("r", encoding="utf-8") as config_file:
+    with CONFIG_PATH.open("rb") as config_file:
         try:
-            data = json.load(config_file)
-        except json.JSONDecodeError as exc:  # noqa: BLE001
+            data = tomllib.load(config_file)
+        except tomllib.TOMLDecodeError as exc:  # noqa: BLE001
             raise RuntimeError(f"Failed to parse configuration file {CONFIG_PATH}: {exc}") from exc
 
     ssh_keys = data.get("ssh_keys", [])
@@ -109,6 +109,13 @@ def _temporary_workspace(logs: Optional[List[str]] = None) -> Path:
         yield Path(tmpdir)
 
 
+def _find_default_index(entries: List[Dict[str, str]]) -> Optional[int]:
+    for idx, entry in enumerate(entries):
+        if entry.get("default") is True:
+            return idx
+    return None
+
+
 def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, success: Optional[bool] = None) -> str:
     log_section = ""
     if logs:
@@ -126,32 +133,37 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         """
     escaped_form = {key: html.escape(value) for key, value in form_values.items()}
 
+    default_ssh_key_index = _find_default_index(APP_CONFIG["ssh_keys"])
+    default_git_user_index = _find_default_index(APP_CONFIG["git_users"])
+    selected_ssh_key = escaped_form.get("ssh_key_selection", "")
+    if not selected_ssh_key and default_ssh_key_index is not None:
+        selected_ssh_key = str(default_ssh_key_index)
+    selected_git_user = escaped_form.get("git_user_selection", "")
+    if not selected_git_user and default_git_user_index is not None:
+        selected_git_user = str(default_git_user_index)
+
     ssh_key_options = "\n".join(
         (
             "            "
             + f"<option value=\"{idx}\""
-            + (" selected" if str(idx) == escaped_form.get("ssh_key_selection", "") else "")
+            + (" selected" if str(idx) == selected_ssh_key else "")
             + f">{html.escape(option.get('label', option.get('path', 'Unknown Key')))}</option>"
         )
         for idx, option in enumerate(APP_CONFIG["ssh_keys"])
     )
-    if ssh_key_options:
-        ssh_key_options = "            <option value=\"\"></option>\n" + ssh_key_options
-    else:
+    if not ssh_key_options:
         ssh_key_options = "            <option value=\"\">(No SSH keys configured)</option>"
 
     git_user_options = "\n".join(
         (
             "            "
             + f"<option value=\"{idx}\""
-            + (" selected" if str(idx) == escaped_form.get("git_user_selection", "") else "")
+            + (" selected" if str(idx) == selected_git_user else "")
             + f">{html.escape(option.get('label', option.get('name', 'Unknown User')))}</option>"
         )
         for idx, option in enumerate(APP_CONFIG["git_users"])
     )
-    if git_user_options:
-        git_user_options = "            <option value=\"\"></option>\n" + git_user_options
-    else:
+    if not git_user_options:
         git_user_options = "            <option value=\"\">(No Git users configured)</option>"
     allow_empty_checked = " checked" if escaped_form.get("allow_empty_commit") == "true" else ""
     branch_mode = escaped_form.get("branch_mode", "default")
