@@ -261,14 +261,14 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
                 <label for=\"repository_url\">Repository URL (SSH recommended)</label>
                 <input type=\"text\" id=\"repository_url\" name=\"repository_url\" required value=\"{escaped_form.get('repository_url', '')}\">
             </div>
-            <div>
+            <div id=\"branch_group\">
                 <label for=\"branch\">Branch (optional: use the current branch)</label>
                 <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\">
             </div>
         </div>
         <div>
-            <label>Branch creation mode</label>
-            <div class=\"toggle-group\" role=\"radiogroup\" aria-label=\"Branch creation mode\">
+            <label>Mode</label>
+            <div class=\"toggle-group\" role=\"radiogroup\" aria-label=\"Mode\">
                 <label>
                     <input type=\"radio\" name=\"branch_mode\" value=\"default\"{branch_mode_default_checked}>
                     Default behavior (checkout when a branch is specified)
@@ -328,6 +328,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
+    const branchGroup = document.getElementById("branch_group");
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
@@ -341,6 +342,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const sshKeyField = document.getElementById("ssh_key_path");
     const togglePatchRequired = () => {{
         patchField.required = !allowEmptyCommit.checked;
+        patchGroup.classList.toggle("hidden", allowEmptyCommit.checked);
         if (allowEmptyCommit.checked) {{
             patchField.removeAttribute("name");
             patchField.setAttribute("disabled", "");
@@ -370,22 +372,25 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             branchField.removeAttribute("disabled");
         }}
         const hideDetails = selectedMode === "from_commit";
+        branchGroup.classList.toggle("hidden", selectedMode !== "default");
+        if (selectedMode === "default") {{
+            branchField.removeAttribute("disabled");
+        }} else {{
+            branchField.setAttribute("disabled", "");
+        }}
         gitUserGroup.classList.toggle("hidden", hideDetails);
         commitMessageGroup.classList.toggle("hidden", hideDetails);
         allowEmptyGroup.classList.toggle("hidden", hideDetails);
-        sshKeyGroup.classList.toggle("hidden", hideDetails);
-        patchGroup.classList.toggle("hidden", hideDetails);
+        patchGroup.classList.toggle("hidden", hideDetails || allowEmptyCommit.checked);
         if (hideDetails) {{
             gitUserField.setAttribute("disabled", "");
             commitMessageField.setAttribute("disabled", "");
             allowEmptyCommit.setAttribute("disabled", "");
-            sshKeyField.setAttribute("disabled", "");
             patchField.setAttribute("disabled", "");
         }} else {{
             gitUserField.removeAttribute("disabled");
             commitMessageField.removeAttribute("disabled");
             allowEmptyCommit.removeAttribute("disabled");
-            sshKeyField.removeAttribute("disabled");
             togglePatchRequired();
         }}
     }};
