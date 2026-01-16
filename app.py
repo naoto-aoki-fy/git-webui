@@ -159,7 +159,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     branch_mode_commit_checked = " checked" if branch_mode == "from_commit" else ""
     branch_mode_orphan_checked = " checked" if branch_mode == "orphan" else ""
     return f"""<!DOCTYPE html>
-<html lang=\"ja\">
+<html lang=\"en\">
 <head>
     <meta charset=\"utf-8\">
     <title>git apply web ui</title>
@@ -253,15 +253,15 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
 <body>
 <main>
     <h1>git apply --3way Web UI</h1>
-    <p>GitHubリポジトリに対してパッチを適用し、コミットしてpushします。</p>
+    <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
     <form method=\"post\" action=\"/\">
         <div class=\"field-group\">
             <div>
-                <label for=\"repository_url\">Repository URL (SSH推奨)</label>
+                <label for=\"repository_url\">Repository URL (SSH recommended)</label>
                 <input type=\"text\" id=\"repository_url\" name=\"repository_url\" required value=\"{escaped_form.get('repository_url', '')}\">
             </div>
             <div>
-                <label for=\"branch\">Branch (省略可: 現在のブランチを使用)</label>
+                <label for=\"branch\">Branch (optional: use the current branch)</label>
                 <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\">
             </div>
         </div>
@@ -270,21 +270,21 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             <div class=\"toggle-group\" role=\"radiogroup\" aria-label=\"Branch creation mode\">
                 <label>
                     <input type=\"radio\" name=\"branch_mode\" value=\"default\"{branch_mode_default_checked}>
-                    既存の動作 (ブランチ指定時はcheckout)
+                    Default behavior (checkout when a branch is specified)
                 </label>
                 <label>
                     <input type=\"radio\" name=\"branch_mode\" value=\"from_commit\"{branch_mode_commit_checked}>
-                    指定コミットから新規ブランチを作成
+                    Create a new branch from the specified commit
                 </label>
                 <label>
                     <input type=\"radio\" name=\"branch_mode\" value=\"orphan\"{branch_mode_orphan_checked}>
-                    orphanブランチを作成
+                    Create an orphan branch
                 </label>
             </div>
-            <p class=\"subtle\">指定コミット/Orphanモードではブランチ名が必須です。</p>
+            <p class=\"subtle\">A branch name is required for commit-based or orphan modes.</p>
         </div>
         <div id=\"commit_id_group\" class=\"hidden\">
-            <label for=\"base_commit\">Base Commit ID (例: a1b2c3d)</label>
+            <label for=\"base_commit\">Base Commit ID (e.g., a1b2c3d)</label>
             <input type=\"text\" id=\"base_commit\" name=\"base_commit\" value=\"{escaped_form.get('base_commit', '')}\">
         </div>
         <div id=\"git_user_group\">
@@ -295,12 +295,12 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         </div>
         <div id=\"commit_message_group\">
             <label for=\"commit_message\">Commit Message</label>
-            <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"例: Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
+            <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"e.g., Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
         </div>
         <div id=\"allow_empty_group\">
             <label>
                 <input type=\"checkbox\" id=\"allow_empty_commit\" name=\"allow_empty_commit\" value=\"true\"{allow_empty_checked}>
-                空コミットを許可する
+                Allow empty commit
             </label>
         </div>
         <div id=\"ssh_key_group\">
@@ -310,7 +310,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             </select>
         </div>
         <div id=\"patch_group\">
-            <label for=\"patch\">Patch (git apply --3way -v で適用されます)</label>
+            <label for=\"patch\">Patch (applied with git apply --3way -v)</label>
             <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
         </div>
         <button type=\"submit\">Apply Patch &amp; Push</button>
