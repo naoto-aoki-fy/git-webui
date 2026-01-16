@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import os
 import shlex
 import tempfile
@@ -47,11 +48,22 @@ class CommandResult:
     stderr: str
 
 
+@dataclass
+class LogSink:
+    entries: List[str]
+    websocket: Optional[web.WebSocketResponse] = None
+
+    def append(self, message: str) -> None:
+        self.entries.append(message)
+        if self.websocket and not self.websocket.closed:
+            asyncio.create_task(self.websocket.send_json({"type": "log", "line": message}))
+
+
 async def run_command(
     *cmd: str,
     cwd: Optional[Path] = None,
     env: Optional[Dict[str, str]] = None,
-    log: Optional[List[str]] = None,
+    log: Optional[LogSink] = None,
 ) -> CommandResult:
     """Run a command asynchronously and capture its output."""
     printable_cmd = " ".join(cmd)
@@ -81,7 +93,7 @@ def _timestamped(message: str) -> str:
     return f"[{timestamp} UTC] {message}"
 
 
-def _log_debug(logs: Optional[List[str]], message: str) -> None:
+def _log_debug(logs: Optional[LogSink], message: str) -> None:
     if logs is None:
         return
     logs.append(_timestamped(f"DEBUG: {message}"))
@@ -94,7 +106,7 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
 
 
 @contextmanager
-def _temporary_workspace(logs: Optional[List[str]] = None) -> Path:
+def _temporary_workspace(logs: Optional[LogSink] = None) -> Path:
     if KEEP_TEMP:
         tmpdir = tempfile.mkdtemp(prefix="git-webui-")
         workdir = Path(tmpdir)
@@ -117,18 +129,18 @@ def _find_default_index(entries: List[Dict[str, str]]) -> Optional[int]:
 
 
 def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, success: Optional[bool] = None) -> str:
-    log_section = ""
-    if logs:
-        escaped_logs = "\n".join(html.escape(entry) for entry in logs)
-        status_class = "success" if success else "failure"
-        status_label = "Success" if success else "Failure"
-        if success is None:
-            status_class = "neutral"
-            status_label = "Logs"
-        log_section = f"""
-        <section class=\"logs {status_class}\">
-            <h2>{status_label}</h2>
-            <pre>{escaped_logs}</pre>
+    escaped_logs = "\n".join(html.escape(entry) for entry in logs or [])
+    status_class = "success" if success else "failure"
+    status_label = "Success" if success else "Failure"
+    if success is None:
+        status_class = "neutral"
+        status_label = "Logs"
+    if not logs:
+        status_class = f"{status_class} hidden"
+    log_section = f"""
+        <section id=\"log_section\" class=\"logs {status_class}\">
+            <h2 id=\"log_status\">{status_label}</h2>
+            <pre id=\"log_output\">{escaped_logs}</pre>
         </section>
         """
     escaped_form = {key: html.escape(value) for key, value in form_values.items()}
@@ -267,7 +279,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
 <main>
     <h1>git apply --3way Web UI</h1>
     <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
-    <form method=\"post\" action=\"/\">
+    <form method=\"post\" action=\"/\" id=\"apply_form\" novalidate>
         <div class=\"field-group\">
             <div>
                 <label for=\"repository_url\">Repository URL (SSH recommended)</label>
@@ -330,11 +342,13 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             <label for=\"patch\">Patch (applied with git apply --3way -v)</label>
             <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
         </div>
-        <button type=\"submit\">Apply Patch &amp; Push</button>
+        <button type=\"button\" id=\"submit_button\">Apply Patch &amp; Push</button>
     </form>
     {log_section}
 </main>
 <script>
+    const form = document.getElementById("apply_form");
+    const submitButton = document.getElementById("submit_button");
     const allowEmptyCommit = document.getElementById("allow_empty_commit");
     const patchField = document.getElementById("patch");
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
@@ -352,6 +366,81 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const sshKeyField = document.getElementById("ssh_key_path");
+    const logSection = document.getElementById("log_section");
+    const logOutput = document.getElementById("log_output");
+    const logStatus = document.getElementById("log_status");
+    let logSocket = null;
+    const appendLogLine = (line) => {{
+        if (!logSection || !logOutput || !logStatus) {{
+            return;
+        }}
+        logSection.classList.remove("hidden");
+        logStatus.textContent = "Logs";
+        logOutput.textContent += (logOutput.textContent ? "\\n" : "") + line;
+        logOutput.scrollTop = logOutput.scrollHeight;
+    }};
+    const updateLogStatus = (success) => {{
+        if (!logSection || !logStatus) {{
+            return;
+        }}
+        logSection.classList.remove("success", "failure", "neutral");
+        if (success === true) {{
+            logSection.classList.add("success");
+            logStatus.textContent = "Success";
+        }} else if (success === false) {{
+            logSection.classList.add("failure");
+            logStatus.textContent = "Failure";
+        }} else {{
+            logSection.classList.add("neutral");
+            logStatus.textContent = "Logs";
+        }}
+    }};
+    const connectWebSocket = () => {{
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        logSocket = new WebSocket(`${{protocol}}://${{window.location.host}}/ws`);
+        logSocket.addEventListener("message", (event) => {{
+            let payload;
+            try {{
+                payload = JSON.parse(event.data);
+            }} catch (error) {{
+                appendLogLine(event.data);
+                return;
+            }}
+            if (payload.type === "log") {{
+                appendLogLine(payload.line);
+            }}
+            if (payload.type === "complete") {{
+                updateLogStatus(payload.success);
+            }}
+            if (payload.type === "error") {{
+                appendLogLine(payload.message);
+                updateLogStatus(false);
+            }}
+        }});
+    }};
+    connectWebSocket();
+    const ensureWebSocketReady = () => new Promise((resolve) => {{
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {{
+            resolve();
+            return;
+        }}
+        connectWebSocket();
+        logSocket.addEventListener("open", () => resolve(), {{ once: true }});
+    }});
+    const sendFormOverWebSocket = async () => {{
+        await ensureWebSocketReady();
+        const payload = Object.fromEntries(new FormData(form).entries());
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {{
+            updateLogStatus(null);
+            if (logOutput) {{
+                logOutput.textContent = "";
+            }}
+            logSocket.send(JSON.stringify({{ type: "submit", payload }}));
+        }} else {{
+            appendLogLine("[client] WebSocket connection not ready.");
+            updateLogStatus(false);
+        }}
+    }};
     const togglePatchRequired = () => {{
         patchField.required = !allowEmptyCommit.checked;
         patchGroup.classList.toggle("hidden", allowEmptyCommit.checked);
@@ -412,19 +501,39 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         input.addEventListener("change", toggleCommitField);
     }});
     toggleCommitField();
+    const handleSubmit = (event) => {{
+        event.preventDefault();
+        event.stopPropagation();
+        if (logOutput) {{
+            logOutput.textContent = "";
+        }}
+        updateLogStatus(null);
+        sendFormOverWebSocket();
+    }};
+    if (submitButton) {{
+        submitButton.addEventListener("click", handleSubmit);
+    }}
+    form.addEventListener("submit", handleSubmit);
+    form.addEventListener("keydown", (event) => {{
+        if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {{
+            handleSubmit(event);
+        }}
+    }});
 </script>
 </body>
 </html>
 """
 
 
-async def index(request: web.Request) -> web.Response:
-    if request.method == "GET":
-        return web.Response(text=render_page({}, None), content_type="text/html")
+def _normalize_form_payload(form: Dict[str, str]) -> Dict[str, str]:
+    normalized = {}
+    for key, value in form.items():
+        normalized[key] = value if isinstance(value, str) else str(value)
+    return normalized
 
-    logs: List[str] = []
-    _log_debug(logs, "Received POST request.")
-    form = await request.post()
+
+async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
+    _log_debug(logs, "Received submission payload.")
     repository_url = form.get("repository_url", "").strip()
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
@@ -475,11 +584,8 @@ async def index(request: web.Request) -> web.Response:
             user_email = user_entry.get("email", "").strip()
             _log_debug(logs, f"Resolved git user index={user_idx} name='{user_name}'.")
         except (ValueError, IndexError):
-            logs = [_timestamped("Invalid Git user selection.")]
-            return web.Response(
-                text=render_page(form_values, logs, False),
-                content_type="text/html",
-            )
+            logs.append(_timestamped("Invalid Git user selection."))
+            return {"form_values": form_values, "success": False}
 
     _log_debug(logs, "Validated git user selection.")
     success = False
@@ -487,20 +593,20 @@ async def index(request: web.Request) -> web.Response:
     if not repository_url:
         _log_debug(logs, "Repository URL missing.")
         logs.append(_timestamped("Repository URL is required."))
-        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+        return {"form_values": form_values, "success": False}
 
     if branch_mode != "from_commit" and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
-        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+        return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and not base_commit:
         _log_debug(logs, "Base commit missing for branch creation.")
         logs.append(_timestamped("Base commit ID is required when creating a branch from a commit."))
-        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+        return {"form_values": form_values, "success": False}
     if branch_mode in {"from_commit", "orphan"} and not new_branch:
         _log_debug(logs, "New branch name missing for selected branch mode.")
         logs.append(_timestamped("New branch name is required for commit/orphan branch creation modes."))
-        return web.Response(text=render_page(form_values, logs, False), content_type="text/html")
+        return {"form_values": form_values, "success": False}
 
     ssh_key_path: Optional[Path] = None
 
@@ -607,7 +713,7 @@ async def index(request: web.Request) -> web.Response:
                     raise RuntimeError("git push failed")
                 logs.append(_timestamped("Branch created from commit and pushed successfully."))
                 success = True
-                return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
+                return {"form_values": form_values, "success": success}
             elif branch_mode == "orphan":
                 logs.append(_timestamped(f"Creating orphan branch {new_branch}."))
                 _log_debug(logs, f"Creating orphan branch '{new_branch}'.")
@@ -770,13 +876,53 @@ async def index(request: web.Request) -> web.Response:
         _log_debug(logs, "Request failed with exception.")
         success = False
 
-    return web.Response(text=render_page(form_values, logs, success), content_type="text/html")
+    return {"form_values": form_values, "success": success}
+
+
+async def index(request: web.Request) -> web.Response:
+    if request.method == "GET":
+        return web.Response(text=render_page({}, None), content_type="text/html")
+
+    form = await request.post()
+    logs = LogSink(entries=[])
+    result = await process_submission(_normalize_form_payload(dict(form)), logs)
+    return web.Response(
+        text=render_page(result["form_values"], logs.entries, result["success"]),
+        content_type="text/html",
+    )
+
+
+async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
+    websocket = web.WebSocketResponse()
+    await websocket.prepare(request)
+    try:
+        async for msg in websocket:
+            if msg.type == web.WSMsgType.TEXT:
+                try:
+                    payload = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    await websocket.send_json({"type": "error", "message": "Invalid JSON payload."})
+                    continue
+                if payload.get("type") == "submit":
+                    form_data = payload.get("payload", {})
+                    if not isinstance(form_data, dict):
+                        await websocket.send_json({"type": "error", "message": "Invalid form payload."})
+                        continue
+                    logs = LogSink(entries=[], websocket=websocket)
+                    result = await process_submission(_normalize_form_payload(form_data), logs)
+                    await websocket.send_json({"type": "complete", "success": result["success"]})
+            if msg.type == web.WSMsgType.ERROR:
+                break
+    finally:
+        pass
+    return websocket
 
 
 def create_app() -> web.Application:
     app = web.Application()
     app.router.add_route("GET", "/", index)
     app.router.add_route("POST", "/", index)
+    app.router.add_route("GET", "/ws", websocket_handler)
     return app
 
 
