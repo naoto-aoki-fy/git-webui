@@ -2,9 +2,11 @@ import asyncio
 import html
 import json
 import os
+import re
 import shlex
 import tempfile
 import tomllib
+import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +21,8 @@ CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.toml"))
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
+REPO_ROOT = Path(os.environ.get("GIT_WEBUI_REPO_ROOT", "repos")).expanduser()
+REPO_ROOT.mkdir(parents=True, exist_ok=True)
 
 def _load_config() -> Dict[str, List[Dict[str, str]]]:
     if not CONFIG_PATH.exists():
@@ -103,6 +107,14 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     if "\\" in raw_path or ":" in raw_path:
         return shlex.quote(PureWindowsPath(raw_path).as_posix())
     return shlex.quote(str(resolved_path))
+
+
+def _repo_workspace_for_url(repository_url: str) -> Path:
+    repo_name = Path(repository_url.rstrip("/")).name
+    repo_name = repo_name[:-4] if repo_name.endswith(".git") else repo_name
+    repo_name = re.sub(r"[^A-Za-z0-9._-]+", "-", repo_name).strip("-") or "repo"
+    digest = hashlib.sha256(repository_url.encode("utf-8")).hexdigest()[:10]
+    return REPO_ROOT / f"{repo_name}-{digest}"
 
 
 @contextmanager
@@ -612,7 +624,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
 
     try:
         with _temporary_workspace(logs) as workdir:
-            repo_dir = workdir / "repo"
+            repo_dir = _repo_workspace_for_url(repository_url)
             env = os.environ.copy()
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
             _log_debug(logs, f"Repository directory will be {repo_dir}.")
@@ -636,20 +648,55 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
             else:
                 _log_debug(logs, "No SSH key selected; using default SSH configuration.")
 
-            logs.append(_timestamped(f"Cloning repository {repository_url}"))
-            _log_debug(logs, "Starting git clone.")
-            clone_result = await run_command(
-                "git",
-                "-c", "core.hooksPath=" + DEVNULL,
-                "clone",
-                repository_url,
-                str(repo_dir),
-                env=env,
-                log=logs,
-            )
-            if clone_result.returncode != 0:
-                raise RuntimeError("git clone failed")
-            _log_debug(logs, "git clone completed.")
+            if repo_dir.exists():
+                if not (repo_dir / ".git").exists():
+                    raise RuntimeError(f"Existing repository path is not a git repo: {repo_dir}")
+                logs.append(_timestamped(f"Using existing repository at {repo_dir}"))
+                _log_debug(logs, "Fetching latest changes from origin.")
+                fetch_result = await run_command(
+                    "git",
+                    "-c",
+                    "core.hooksPath=" + DEVNULL,
+                    "fetch",
+                    "--prune",
+                    "origin",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if fetch_result.returncode != 0:
+                    raise RuntimeError("git fetch failed")
+                _log_debug(logs, "git fetch completed.")
+                _log_debug(logs, "Pulling latest changes from origin.")
+                pull_result = await run_command(
+                    "git",
+                    "-c",
+                    "core.hooksPath=" + DEVNULL,
+                    "pull",
+                    "--ff-only",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if pull_result.returncode != 0:
+                    raise RuntimeError("git pull failed")
+                _log_debug(logs, "git pull completed.")
+            else:
+                logs.append(_timestamped(f"Cloning repository {repository_url}"))
+                _log_debug(logs, "Starting git clone.")
+                repo_dir.parent.mkdir(parents=True, exist_ok=True)
+                clone_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "clone",
+                    repository_url,
+                    str(repo_dir),
+                    env=env,
+                    log=logs,
+                )
+                if clone_result.returncode != 0:
+                    raise RuntimeError("git clone failed")
+                _log_debug(logs, "git clone completed.")
 
             if user_name:
                 _log_debug(logs, "Configuring git user.name.")
@@ -766,6 +813,22 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     if create_branch_result.returncode != 0:
                         raise RuntimeError("Failed to create branch")
                     _log_debug(logs, f"Branch '{branch}' created.")
+                else:
+                    _log_debug(logs, f"Pulling latest changes for branch '{branch}'.")
+                    pull_result = await run_command(
+                        "git",
+                        "-c",
+                        "core.hooksPath=" + DEVNULL,
+                        "pull",
+                        "--ff-only",
+                        "origin",
+                        branch,
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if pull_result.returncode != 0:
+                        raise RuntimeError("git pull failed")
             else:
                 _log_debug(logs, "No branch specified; using default branch.")
                 await run_command(
@@ -776,6 +839,19 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     env=env,
                     log=logs,
                 )
+                _log_debug(logs, "Pulling latest changes for default branch.")
+                pull_result = await run_command(
+                    "git",
+                    "-c",
+                    "core.hooksPath=" + DEVNULL,
+                    "pull",
+                    "--ff-only",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if pull_result.returncode != 0:
+                    raise RuntimeError("git pull failed")
 
             if patch_content.strip():
                 patch_path = workdir / "patch.diff"

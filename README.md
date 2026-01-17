@@ -62,6 +62,7 @@ If either list is empty the corresponding dropdown shows that no options are ava
 
 ## Notes
 
-- The application uses temporary directories for cloning repositories and cleans them automatically once processing finishes.
+- Repositories are cloned into a persistent workspace (default: `./repos`) and reused for subsequent requests; before applying new patches the app pulls the latest changes from the remote.
+- Set `GIT_WEBUI_REPO_ROOT` to override the repository workspace location.
 - Logs include timestamps (UTC) for each command and their outputs, helping identify at which step a failure occurred.
 - The web UI does not persist any sensitive data such as SSH keys or patches.
