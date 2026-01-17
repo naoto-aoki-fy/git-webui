@@ -248,6 +248,18 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         button:hover {{
             background: #2c5282;
         }}
+        button.secondary {{
+            background: #4a5568;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+        }}
+        button.secondary:hover {{
+            background: #2d3748;
+        }}
+        button:disabled {{
+            cursor: not-allowed;
+            opacity: 0.6;
+        }}
         .logs {{
             margin-top: 2rem;
             padding: 1.5rem;
@@ -284,6 +296,12 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         }}
         .hidden {{
             display: none;
+        }}
+        .field-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
         }}
     </style>
 </head>
@@ -335,7 +353,12 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             </select>
         </div>
         <div id=\"commit_message_group\">
-            <label for=\"commit_message\">Commit Message</label>
+            <div class=\"field-header\">
+                <label for=\"commit_message\">Commit Message</label>
+                <button type=\"button\" class=\"secondary\" id=\"paste_commit_message\" data-paste-target=\"commit_message\">
+                    Paste from clipboard
+                </button>
+            </div>
             <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"e.g., Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
         </div>
         <div id=\"allow_empty_group\">
@@ -351,7 +374,12 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             </select>
         </div>
         <div id=\"patch_group\">
-            <label for=\"patch\">Patch (applied with git apply --3way -v)</label>
+            <div class=\"field-header\">
+                <label for=\"patch\">Patch (applied with git apply --3way -v)</label>
+                <button type=\"button\" class=\"secondary\" id=\"paste_patch\" data-paste-target=\"patch\">
+                    Paste from clipboard
+                </button>
+            </div>
             <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
         </div>
         <button type=\"button\" id=\"submit_button\">Apply Patch &amp; Push</button>
@@ -378,6 +406,8 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const sshKeyField = document.getElementById("ssh_key_path");
+    const pasteCommitMessageButton = document.getElementById("paste_commit_message");
+    const pastePatchButton = document.getElementById("paste_patch");
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
@@ -463,6 +493,9 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             patchField.setAttribute("name", "patch");
             patchField.removeAttribute("disabled", "");
         }}
+        if (pastePatchButton) {{
+            pastePatchButton.disabled = patchField.hasAttribute("disabled");
+        }}
     }};
     const toggleCommitField = () => {{
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
@@ -500,11 +533,17 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             commitMessageField.setAttribute("disabled", "");
             allowEmptyCommit.setAttribute("disabled", "");
             patchField.setAttribute("disabled", "");
+            if (pastePatchButton) {{
+                pastePatchButton.disabled = true;
+            }}
         }} else {{
             gitUserField.removeAttribute("disabled");
             commitMessageField.removeAttribute("disabled");
             allowEmptyCommit.removeAttribute("disabled");
             togglePatchRequired();
+        }}
+        if (pasteCommitMessageButton) {{
+            pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }}
     }};
     togglePatchRequired();
@@ -531,6 +570,29 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             handleSubmit(event);
         }}
     }});
+    const pasteFromClipboard = async (targetId) => {{
+        const target = document.getElementById(targetId);
+        if (!target) {{
+            return;
+        }}
+        try {{
+            const clipboardText = await navigator.clipboard.readText();
+            target.value = clipboardText;
+            target.focus();
+        }} catch (error) {{
+            console.error("Clipboard paste failed", error);
+            alert("Unable to read from the clipboard. Please paste manually.");
+        }}
+    }};
+    const bindPasteButton = (button) => {{
+        if (!button) {{
+            return;
+        }}
+        const targetId = button.getAttribute("data-paste-target");
+        button.addEventListener("click", () => pasteFromClipboard(targetId));
+    }};
+    bindPasteButton(pasteCommitMessageButton);
+    bindPasteButton(pastePatchButton);
 </script>
 </body>
 </html>
