@@ -313,11 +313,21 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
         <div class=\"field-group\">
             <div>
                 <label for=\"repository_url\">Repository URL (SSH recommended)</label>
-                <input type=\"text\" id=\"repository_url\" name=\"repository_url\" required value=\"{escaped_form.get('repository_url', '')}\">
+                <input type=\"text\" id=\"repository_url\" name=\"repository_url\" required value=\"{escaped_form.get('repository_url', '')}\" list=\"repository_history\">
+                <datalist id=\"repository_history\"></datalist>
+                <label for=\"repository_saved\" class=\"subtle\">Saved repositories</label>
+                <select id=\"repository_saved\">
+                    <option value=\"\">Select a saved repository</option>
+                </select>
             </div>
             <div id=\"branch_group\">
                 <label for=\"branch\">Branch (optional: use the current branch)</label>
-                <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\">
+                <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\" list=\"branch_history\">
+                <datalist id=\"branch_history\"></datalist>
+                <label for=\"branch_saved\" class=\"subtle\">Saved branches</label>
+                <select id=\"branch_saved\">
+                    <option value=\"\">Select a saved branch</option>
+                </select>
             </div>
         </div>
         <div>
@@ -395,6 +405,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
     const branchGroup = document.getElementById("branch_group");
+    const repositoryField = document.getElementById("repository_url");
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
@@ -411,6 +422,13 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
+    const repositoryHistoryList = document.getElementById("repository_history");
+    const branchHistoryList = document.getElementById("branch_history");
+    const repositorySavedSelect = document.getElementById("repository_saved");
+    const branchSavedSelect = document.getElementById("branch_saved");
+    const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
+    const BRANCH_STORAGE_KEY = "git-webui.branches";
+    const MAX_STORED_VALUES = 10;
     let logSocket = null;
     const appendLogLine = (line) => {{
         if (!logSection || !logOutput || !logStatus) {{
@@ -459,6 +477,73 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
                 updateLogStatus(false);
             }}
         }});
+    }};
+    const readStoredValues = (key) => {{
+        try {{
+            const raw = window.localStorage.getItem(key);
+            if (!raw) {{
+                return [];
+            }}
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {{
+                return [];
+            }}
+            return parsed.filter((value) => typeof value === "string");
+        }} catch (error) {{
+            console.warn("Failed to read stored values", error);
+            return [];
+        }}
+    }};
+    const writeStoredValues = (key, values) => {{
+        window.localStorage.setItem(key, JSON.stringify(values));
+    }};
+    const addStoredValue = (key, value) => {{
+        const trimmed = value.trim();
+        if (!trimmed) {{
+            return readStoredValues(key);
+        }}
+        const existing = readStoredValues(key);
+        const nextValues = [trimmed, ...existing.filter((item) => item !== trimmed)].slice(0, MAX_STORED_VALUES);
+        writeStoredValues(key, nextValues);
+        return nextValues;
+    }};
+    const renderStoredOptions = (values, datalist, select, placeholder) => {{
+        if (datalist) {{
+            datalist.innerHTML = values.map((value) => `<option value=\"${{value}}\"></option>`).join("");
+        }}
+        if (select) {{
+            select.innerHTML = "";
+            const placeholderOption = document.createElement("option");
+            placeholderOption.value = "";
+            placeholderOption.textContent = placeholder;
+            select.appendChild(placeholderOption);
+            values.forEach((value) => {{
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = value;
+                select.appendChild(option);
+            }});
+        }}
+    }};
+    const refreshStoredSelections = () => {{
+        renderStoredOptions(
+            readStoredValues(REPOSITORY_STORAGE_KEY),
+            repositoryHistoryList,
+            repositorySavedSelect,
+            "Select a saved repository",
+        );
+        renderStoredOptions(
+            readStoredValues(BRANCH_STORAGE_KEY),
+            branchHistoryList,
+            branchSavedSelect,
+            "Select a saved branch",
+        );
+    }};
+    const persistStoredSelections = () => {{
+        const repoValues = addStoredValue(REPOSITORY_STORAGE_KEY, repositoryField.value);
+        const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
+        renderStoredOptions(repoValues, repositoryHistoryList, repositorySavedSelect, "Select a saved repository");
+        renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
     }};
     connectWebSocket();
     const ensureWebSocketReady = () => new Promise((resolve) => {{
@@ -559,6 +644,7 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
             logOutput.textContent = "";
         }}
         updateLogStatus(null);
+        persistStoredSelections();
         sendFormOverWebSocket();
     }};
     if (submitButton) {{
@@ -593,6 +679,25 @@ def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, s
     }};
     bindPasteButton(pasteCommitMessageButton);
     bindPasteButton(pastePatchButton);
+    refreshStoredSelections();
+    if (repositorySavedSelect) {{
+        repositorySavedSelect.addEventListener("change", (event) => {{
+            const selected = event.target.value;
+            if (selected) {{
+                repositoryField.value = selected;
+                repositoryField.focus();
+            }}
+        }});
+    }}
+    if (branchSavedSelect) {{
+        branchSavedSelect.addEventListener("change", (event) => {{
+            const selected = event.target.value;
+            if (selected) {{
+                branchField.value = selected;
+                branchField.focus();
+            }}
+        }});
+    }}
 </script>
 </body>
 </html>
