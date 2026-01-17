@@ -25,10 +25,18 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python app.py
+python backend/app.py
 ```
 
-The application listens on `http://0.0.0.0:8080/` by default.
+The backend listens on `http://0.0.0.0:8080/` by default.
+
+Serve the static frontend separately (for example):
+
+```bash
+python -m http.server 8000 -d docs
+```
+
+Then open `http://localhost:8000` in your browser and set the backend URL (for example, `http://localhost:8080`) in the UI so it can connect and load configuration.
 
 1. Enter the repository SSH URL (HTTPS is also supported when credentials are already configured).
 2. Optionally specify a target branch. If the branch does not exist it will be created. You can also switch the branch creation mode to create a new branch from a commit ID or start an orphan branch.
@@ -65,4 +73,4 @@ If either list is empty the corresponding dropdown shows that no options are ava
 - Repositories are cloned into a persistent workspace (default: `./repos`) and reused for subsequent requests; before applying new patches the app pulls the latest changes from the remote.
 - Set `GIT_WEBUI_REPO_ROOT` to override the repository workspace location.
 - Logs include timestamps (UTC) for each command and their outputs, helping identify at which step a failure occurred.
-- The web UI does not persist any sensitive data such as SSH keys or patches.
+- The web UI does not persist any sensitive data such as SSH keys or patches, but it does store recently used repository/branch values and the backend URL in browser local storage.

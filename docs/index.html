@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>git apply web ui</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            margin: 2rem;
+            background: #f5f5f5;
+            color: #222;
+        }
+        main {
+            max-width: 960px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 18px rgba(0,0,0,0.1);
+        }
+        form {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+        label {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        input[type=text], textarea, select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-family: monospace;
+            background: #fafafa;
+        }
+        textarea {
+            min-height: 220px;
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            background: #2b6cb0;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #2c5282;
+        }
+        button.secondary {
+            background: #4a5568;
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+        }
+        button.secondary:hover {
+            background: #2d3748;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .logs {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            border-radius: 10px;
+            background: #1a202c;
+            color: #edf2f7;
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.4);
+        }
+        .logs.success { border: 2px solid #48bb78; }
+        .logs.failure { border: 2px solid #f56565; }
+        .logs.neutral { border: 2px solid #a0aec0; }
+        .logs pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+        .field-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1rem;
+        }
+        .toggle-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+        }
+        .toggle-group label {
+            font-weight: 500;
+            margin-bottom: 0;
+        }
+        .subtle {
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+        .hidden {
+            display: none;
+        }
+        .field-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .status-pill {
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+        .status-pill.connected {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        .status-pill.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>git apply --3way Web UI</h1>
+    <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
+    <form method="post" action="/" id="apply_form" novalidate>
+        <div>
+            <div class="field-header">
+                <label for="backend_url">Backend URL</label>
+                <span id="backend_status" class="status-pill">disconnected</span>
+            </div>
+            <div class="field-group">
+                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
+                <button type="button" class="secondary" id="backend_apply">Use backend</button>
+            </div>
+            <p class="subtle">Set the backend server origin (including port). This value is saved in your browser.</p>
+        </div>
+        <div class="field-group">
+            <div>
+                <label for="repository_url">Repository URL (SSH recommended)</label>
+                <input type="text" id="repository_url" name="repository_url" required list="repository_history">
+                <datalist id="repository_history"></datalist>
+                <label for="repository_saved" class="subtle">Saved repositories</label>
+                <select id="repository_saved">
+                    <option value="">Select a saved repository</option>
+                </select>
+            </div>
+            <div id="branch_group">
+                <label for="branch">Branch (optional: use the current branch)</label>
+                <input type="text" id="branch" name="branch" list="branch_history">
+                <datalist id="branch_history"></datalist>
+                <label for="branch_saved" class="subtle">Saved branches</label>
+                <select id="branch_saved">
+                    <option value="">Select a saved branch</option>
+                </select>
+            </div>
+        </div>
+        <div>
+            <label>Mode</label>
+            <div class="toggle-group" role="radiogroup" aria-label="Mode">
+                <label>
+                    <input type="radio" name="branch_mode" value="default" checked>
+                    Default behavior (checkout when a branch is specified)
+                </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="from_commit">
+                    Create a new branch from the specified commit
+                </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="orphan">
+                    Create an orphan branch
+                </label>
+            </div>
+            <p class="subtle">A new branch name is required for commit-based or orphan modes.</p>
+        </div>
+        <div id="new_branch_group" class="hidden">
+            <label for="new_branch">New Branch Name</label>
+            <input type="text" id="new_branch" name="new_branch">
+        </div>
+        <div id="commit_id_group" class="hidden">
+            <label for="base_commit">Base Commit ID (e.g., a1b2c3d)</label>
+            <input type="text" id="base_commit" name="base_commit">
+        </div>
+        <div id="git_user_group">
+            <label for="git_user">Git User (Name &amp; Email)</label>
+            <select id="git_user" name="git_user">
+                <option value="">Loading git users...</option>
+            </select>
+        </div>
+        <div id="commit_message_group">
+            <div class="field-header">
+                <label for="commit_message">Commit Message</label>
+                <button type="button" class="secondary" id="paste_commit_message" data-paste-target="commit_message">
+                    Paste from clipboard
+                </button>
+            </div>
+            <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
+        </div>
+        <div id="allow_empty_group">
+            <label>
+                <input type="checkbox" id="allow_empty_commit" name="allow_empty_commit" value="true">
+                Allow empty commit
+            </label>
+        </div>
+        <div id="ssh_key_group">
+            <label for="ssh_key_path">SSH Private Key</label>
+            <select id="ssh_key_path" name="ssh_key_path">
+                <option value="">Loading SSH keys...</option>
+            </select>
+        </div>
+        <div id="patch_group">
+            <div class="field-header">
+                <label for="patch">Patch (applied with git apply --3way -v)</label>
+                <button type="button" class="secondary" id="paste_patch" data-paste-target="patch">
+                    Paste from clipboard
+                </button>
+            </div>
+            <textarea id="patch" name="patch" placeholder="diff --git a/...\n"></textarea>
+        </div>
+        <button type="button" id="submit_button">Apply Patch &amp; Push</button>
+    </form>
+    <section id="log_section" class="logs hidden">
+        <h2 id="log_status">Logs</h2>
+        <pre id="log_output"></pre>
+    </section>
+</main>
+<script>
+    const form = document.getElementById("apply_form");
+    const submitButton = document.getElementById("submit_button");
+    const allowEmptyCommit = document.getElementById("allow_empty_commit");
+    const patchField = document.getElementById("patch");
+    const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
+    const commitIdGroup = document.getElementById("commit_id_group");
+    const commitIdField = document.getElementById("base_commit");
+    const branchGroup = document.getElementById("branch_group");
+    const repositoryField = document.getElementById("repository_url");
+    const branchField = document.getElementById("branch");
+    const newBranchGroup = document.getElementById("new_branch_group");
+    const newBranchField = document.getElementById("new_branch");
+    const gitUserGroup = document.getElementById("git_user_group");
+    const commitMessageGroup = document.getElementById("commit_message_group");
+    const allowEmptyGroup = document.getElementById("allow_empty_group");
+    const patchGroup = document.getElementById("patch_group");
+    const gitUserField = document.getElementById("git_user");
+    const commitMessageField = document.getElementById("commit_message");
+    const sshKeyField = document.getElementById("ssh_key_path");
+    const pasteCommitMessageButton = document.getElementById("paste_commit_message");
+    const pastePatchButton = document.getElementById("paste_patch");
+    const logSection = document.getElementById("log_section");
+    const logOutput = document.getElementById("log_output");
+    const logStatus = document.getElementById("log_status");
+    const repositoryHistoryList = document.getElementById("repository_history");
+    const branchHistoryList = document.getElementById("branch_history");
+    const repositorySavedSelect = document.getElementById("repository_saved");
+    const branchSavedSelect = document.getElementById("branch_saved");
+    const backendUrlField = document.getElementById("backend_url");
+    const backendApplyButton = document.getElementById("backend_apply");
+    const backendStatus = document.getElementById("backend_status");
+
+    const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
+    const BRANCH_STORAGE_KEY = "git-webui.branches";
+    const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
+    const MAX_STORED_VALUES = 10;
+    let logSocket = null;
+
+    const updateBackendStatus = (state, message) => {
+        if (!backendStatus) {
+            return;
+        }
+        backendStatus.textContent = message;
+        backendStatus.classList.remove("connected", "error");
+        if (state === "connected") {
+            backendStatus.classList.add("connected");
+        }
+        if (state === "error") {
+            backendStatus.classList.add("error");
+        }
+    };
+
+    const appendLogLine = (line) => {
+        if (!logSection || !logOutput || !logStatus) {
+            return;
+        }
+        logSection.classList.remove("hidden");
+        logStatus.textContent = "Logs";
+        logOutput.textContent += (logOutput.textContent ? "\n" : "") + line;
+        logOutput.scrollTop = logOutput.scrollHeight;
+    };
+
+    const updateLogStatus = (success) => {
+        if (!logSection || !logStatus) {
+            return;
+        }
+        logSection.classList.remove("success", "failure", "neutral");
+        if (success === true) {
+            logSection.classList.add("success");
+            logStatus.textContent = "Success";
+        } else if (success === false) {
+            logSection.classList.add("failure");
+            logStatus.textContent = "Failure";
+        } else {
+            logSection.classList.add("neutral");
+            logStatus.textContent = "Logs";
+        }
+    };
+
+    const normalizeBackendUrl = (value) => {
+        const trimmed = value.trim();
+        return trimmed.replace(/\/+$/, "");
+    };
+
+    const getBackendUrl = () => {
+        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
+        const fallback = window.location.origin;
+        return normalizeBackendUrl(stored || fallback);
+    };
+
+    const setBackendUrl = (value) => {
+        const normalized = normalizeBackendUrl(value || window.location.origin);
+        window.localStorage.setItem(BACKEND_STORAGE_KEY, normalized);
+        if (backendUrlField) {
+            backendUrlField.value = normalized;
+        }
+        return normalized;
+    };
+
+    const buildBackendUrl = (path) => {
+        const base = getBackendUrl();
+        return new URL(path, base).toString();
+    };
+
+    const connectWebSocket = () => {
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+            return;
+        }
+        const wsUrl = new URL("/ws", getBackendUrl());
+        wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
+        logSocket = new WebSocket(wsUrl.toString());
+        logSocket.addEventListener("open", () => {
+            updateBackendStatus("connected", "connected");
+        });
+        logSocket.addEventListener("close", () => {
+            updateBackendStatus("error", "disconnected");
+        });
+        logSocket.addEventListener("error", () => {
+            updateBackendStatus("error", "error");
+        });
+        logSocket.addEventListener("message", (event) => {
+            let payload;
+            try {
+                payload = JSON.parse(event.data);
+            } catch (error) {
+                appendLogLine(event.data);
+                return;
+            }
+            if (payload.type === "log") {
+                appendLogLine(payload.line);
+            }
+            if (payload.type === "complete") {
+                updateLogStatus(payload.success);
+            }
+            if (payload.type === "error") {
+                appendLogLine(payload.message);
+                updateLogStatus(false);
+            }
+        });
+    };
+
+    const readStoredValues = (key) => {
+        try {
+            const raw = window.localStorage.getItem(key);
+            if (!raw) {
+                return [];
+            }
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed.filter((value) => typeof value === "string");
+        } catch (error) {
+            console.warn("Failed to read stored values", error);
+            return [];
+        }
+    };
+
+    const writeStoredValues = (key, values) => {
+        window.localStorage.setItem(key, JSON.stringify(values));
+    };
+
+    const addStoredValue = (key, value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return readStoredValues(key);
+        }
+        const existing = readStoredValues(key);
+        const nextValues = [trimmed, ...existing.filter((item) => item !== trimmed)].slice(0, MAX_STORED_VALUES);
+        writeStoredValues(key, nextValues);
+        return nextValues;
+    };
+
+    const renderStoredOptions = (values, datalist, select, placeholder) => {
+        if (datalist) {
+            datalist.innerHTML = values.map((value) => `<option value="${value}"></option>`).join("");
+        }
+        if (select) {
+            select.innerHTML = "";
+            const placeholderOption = document.createElement("option");
+            placeholderOption.value = "";
+            placeholderOption.textContent = placeholder;
+            select.appendChild(placeholderOption);
+            values.forEach((value) => {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = value;
+                select.appendChild(option);
+            });
+        }
+    };
+
+    const refreshStoredSelections = () => {
+        renderStoredOptions(
+            readStoredValues(REPOSITORY_STORAGE_KEY),
+            repositoryHistoryList,
+            repositorySavedSelect,
+            "Select a saved repository",
+        );
+        renderStoredOptions(
+            readStoredValues(BRANCH_STORAGE_KEY),
+            branchHistoryList,
+            branchSavedSelect,
+            "Select a saved branch",
+        );
+    };
+
+    const persistStoredSelections = () => {
+        const repoValues = addStoredValue(REPOSITORY_STORAGE_KEY, repositoryField.value);
+        const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
+        renderStoredOptions(repoValues, repositoryHistoryList, repositorySavedSelect, "Select a saved repository");
+        renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
+    };
+
+    const ensureWebSocketReady = () => new Promise((resolve) => {
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+            resolve();
+            return;
+        }
+        connectWebSocket();
+        logSocket.addEventListener("open", () => resolve(), { once: true });
+    });
+
+    const sendFormOverWebSocket = async () => {
+        await ensureWebSocketReady();
+        const payload = Object.fromEntries(new FormData(form).entries());
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+            updateLogStatus(null);
+            if (logOutput) {
+                logOutput.textContent = "";
+            }
+            logSocket.send(JSON.stringify({ type: "submit", payload }));
+        } else {
+            appendLogLine("[client] WebSocket connection not ready.");
+            updateLogStatus(false);
+        }
+    };
+
+    const togglePatchRequired = () => {
+        patchField.required = !allowEmptyCommit.checked;
+        patchGroup.classList.toggle("hidden", allowEmptyCommit.checked);
+        if (allowEmptyCommit.checked) {
+            patchField.removeAttribute("name");
+            patchField.setAttribute("disabled", "");
+        } else {
+            patchField.setAttribute("name", "patch");
+            patchField.removeAttribute("disabled", "");
+        }
+        if (pastePatchButton) {
+            pastePatchButton.disabled = patchField.hasAttribute("disabled");
+        }
+    };
+
+    const toggleCommitField = () => {
+        const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
+        const needsCommit = selectedMode === "from_commit";
+        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan";
+        commitIdGroup.classList.toggle("hidden", !needsCommit);
+        if (needsCommit) {
+            commitIdField.removeAttribute("disabled");
+        } else {
+            commitIdField.setAttribute("disabled", "");
+        }
+        newBranchGroup.classList.toggle("hidden", !needsNewBranch);
+        if (needsNewBranch) {
+            newBranchField.removeAttribute("disabled");
+            newBranchField.setAttribute("required", "");
+            branchField.setAttribute("disabled", "");
+        } else {
+            newBranchField.setAttribute("disabled", "");
+            newBranchField.removeAttribute("required");
+            branchField.removeAttribute("disabled");
+        }
+        const hideDetails = selectedMode === "from_commit";
+        branchGroup.classList.toggle("hidden", selectedMode !== "default");
+        if (selectedMode === "default") {
+            branchField.removeAttribute("disabled");
+        } else {
+            branchField.setAttribute("disabled", "");
+        }
+        gitUserGroup.classList.toggle("hidden", hideDetails);
+        commitMessageGroup.classList.toggle("hidden", hideDetails);
+        allowEmptyGroup.classList.toggle("hidden", hideDetails);
+        patchGroup.classList.toggle("hidden", hideDetails || allowEmptyCommit.checked);
+        if (hideDetails) {
+            gitUserField.setAttribute("disabled", "");
+            commitMessageField.setAttribute("disabled", "");
+            allowEmptyCommit.setAttribute("disabled", "");
+            patchField.setAttribute("disabled", "");
+            if (pastePatchButton) {
+                pastePatchButton.disabled = true;
+            }
+        } else {
+            gitUserField.removeAttribute("disabled");
+            commitMessageField.removeAttribute("disabled");
+            allowEmptyCommit.removeAttribute("disabled");
+            togglePatchRequired();
+        }
+        if (pasteCommitMessageButton) {
+            pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
+        }
+    };
+
+    const resetSelect = (select, message) => {
+        if (!select) {
+            return;
+        }
+        select.innerHTML = "";
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = message;
+        select.appendChild(option);
+    };
+
+    const populateConfig = (payload) => {
+        if (!payload) {
+            return;
+        }
+        const sshKeys = Array.isArray(payload.ssh_keys) ? payload.ssh_keys : [];
+        const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
+        sshKeyField.innerHTML = "";
+        if (sshKeys.length === 0) {
+            resetSelect(sshKeyField, "(No SSH keys configured)");
+        } else {
+            sshKeys.forEach((entry, idx) => {
+                const option = document.createElement("option");
+                option.value = String(idx);
+                option.textContent = entry.label || "Unknown Key";
+                sshKeyField.appendChild(option);
+            });
+        }
+        gitUserField.innerHTML = "";
+        if (gitUsers.length === 0) {
+            resetSelect(gitUserField, "(No Git users configured)");
+        } else {
+            gitUsers.forEach((entry, idx) => {
+                const option = document.createElement("option");
+                option.value = String(idx);
+                option.textContent = entry.label || "Unknown User";
+                gitUserField.appendChild(option);
+            });
+        }
+        const defaultSshIndex = payload.default_ssh_key_index;
+        if (typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex]) {
+            sshKeyField.value = String(defaultSshIndex);
+        }
+        const defaultGitUserIndex = payload.default_git_user_index;
+        if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
+            gitUserField.value = String(defaultGitUserIndex);
+        }
+    };
+
+    const fetchConfig = async () => {
+        try {
+            const response = await fetch(buildBackendUrl("/api/config"));
+            if (!response.ok) {
+                throw new Error(`Config request failed: ${response.status}`);
+            }
+            const payload = await response.json();
+            populateConfig(payload);
+            updateBackendStatus("connected", "connected");
+        } catch (error) {
+            console.error("Failed to load backend config", error);
+            resetSelect(sshKeyField, "(Unable to load SSH keys)");
+            resetSelect(gitUserField, "(Unable to load Git users)");
+            updateBackendStatus("error", "config error");
+        }
+    };
+
+    const applyBackend = () => {
+        const backendUrl = setBackendUrl(backendUrlField.value);
+        updateBackendStatus("", "connecting");
+        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+            logSocket.close();
+        }
+        connectWebSocket();
+        fetchConfig();
+        appendLogLine(`[client] Using backend ${backendUrl}`);
+    };
+
+    togglePatchRequired();
+    allowEmptyCommit.addEventListener("change", togglePatchRequired);
+    branchModeInputs.forEach((input) => {
+        input.addEventListener("change", toggleCommitField);
+    });
+    toggleCommitField();
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (logOutput) {
+            logOutput.textContent = "";
+        }
+        updateLogStatus(null);
+        persistStoredSelections();
+        sendFormOverWebSocket();
+    };
+
+    if (submitButton) {
+        submitButton.addEventListener("click", handleSubmit);
+    }
+    form.addEventListener("submit", handleSubmit);
+    form.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {
+            handleSubmit(event);
+        }
+    });
+
+    const pasteFromClipboard = async (targetId) => {
+        const target = document.getElementById(targetId);
+        if (!target) {
+            return;
+        }
+        try {
+            const clipboardText = await navigator.clipboard.readText();
+            target.value = clipboardText;
+            target.focus();
+        } catch (error) {
+            console.error("Clipboard paste failed", error);
+            alert("Unable to read from the clipboard. Please paste manually.");
+        }
+    };
+
+    const bindPasteButton = (button) => {
+        if (!button) {
+            return;
+        }
+        const targetId = button.getAttribute("data-paste-target");
+        button.addEventListener("click", () => pasteFromClipboard(targetId));
+    };
+
+    bindPasteButton(pasteCommitMessageButton);
+    bindPasteButton(pastePatchButton);
+    refreshStoredSelections();
+
+    if (repositorySavedSelect) {
+        repositorySavedSelect.addEventListener("change", (event) => {
+            const selected = event.target.value;
+            if (selected) {
+                repositoryField.value = selected;
+                repositoryField.focus();
+            }
+        });
+    }
+
+    if (branchSavedSelect) {
+        branchSavedSelect.addEventListener("change", (event) => {
+            const selected = event.target.value;
+            if (selected) {
+                branchField.value = selected;
+                branchField.focus();
+            }
+        });
+    }
+
+    if (backendApplyButton) {
+        backendApplyButton.addEventListener("click", applyBackend);
+    }
+
+    const initialBackend = setBackendUrl(getBackendUrl());
+    updateBackendStatus("", "connecting");
+    if (backendUrlField) {
+        backendUrlField.value = initialBackend;
+    }
+    connectWebSocket();
+    fetchConfig();
+</script>
+</body>
+</html>

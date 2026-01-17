@@ -1,5 +1,4 @@
 import asyncio
-import html
 import json
 import os
 import re
@@ -140,568 +139,44 @@ def _find_default_index(entries: List[Dict[str, str]]) -> Optional[int]:
     return None
 
 
-def render_page(form_values: Dict[str, str], logs: Optional[List[str]] = None, success: Optional[bool] = None) -> str:
-    escaped_logs = "\n".join(html.escape(entry) for entry in logs or [])
-    status_class = "success" if success else "failure"
-    status_label = "Success" if success else "Failure"
-    if success is None:
-        status_class = "neutral"
-        status_label = "Logs"
-    if not logs:
-        status_class = f"{status_class} hidden"
-    log_section = f"""
-        <section id=\"log_section\" class=\"logs {status_class}\">
-            <h2 id=\"log_status\">{status_label}</h2>
-            <pre id=\"log_output\">{escaped_logs}</pre>
-        </section>
-        """
-    escaped_form = {key: html.escape(value) for key, value in form_values.items()}
+def _display_label(entry: Dict[str, str], fallback: str) -> str:
+    label = entry.get("label")
+    if isinstance(label, str) and label.strip():
+        return label
+    return fallback
 
-    default_ssh_key_index = _find_default_index(APP_CONFIG["ssh_keys"])
-    default_git_user_index = _find_default_index(APP_CONFIG["git_users"])
-    selected_ssh_key = escaped_form.get("ssh_key_selection", "")
-    if not selected_ssh_key and default_ssh_key_index is not None:
-        selected_ssh_key = str(default_ssh_key_index)
-    selected_git_user = escaped_form.get("git_user_selection", "")
-    if not selected_git_user and default_git_user_index is not None:
-        selected_git_user = str(default_git_user_index)
 
-    ssh_key_options = "\n".join(
-        (
-            "            "
-            + f"<option value=\"{idx}\""
-            + (" selected" if str(idx) == selected_ssh_key else "")
-            + f">{html.escape(option.get('label', option.get('path', 'Unknown Key')))}</option>"
+def _serialize_config() -> Dict[str, object]:
+    ssh_keys = []
+    for entry in APP_CONFIG["ssh_keys"]:
+        label = _display_label(entry, entry.get("path", "Unknown Key"))
+        ssh_keys.append(
+            {
+                "label": label,
+                "default": entry.get("default") is True,
+            }
         )
-        for idx, option in enumerate(APP_CONFIG["ssh_keys"])
-    )
-    if not ssh_key_options:
-        ssh_key_options = "            <option value=\"\">(No SSH keys configured)</option>"
-
-    git_user_options = "\n".join(
-        (
-            "            "
-            + f"<option value=\"{idx}\""
-            + (" selected" if str(idx) == selected_git_user else "")
-            + f">{html.escape(option.get('label', option.get('name', 'Unknown User')))}</option>"
+    git_users = []
+    for entry in APP_CONFIG["git_users"]:
+        name = entry.get("name", "")
+        email = entry.get("email", "")
+        fallback = " ".join(part for part in [name, f"<{email}>" if email else ""] if part).strip()
+        git_users.append(
+            {
+                "label": _display_label(entry, fallback or "Unknown User"),
+                "name": name,
+                "email": email,
+                "default": entry.get("default") is True,
+            }
         )
-        for idx, option in enumerate(APP_CONFIG["git_users"])
-    )
-    if not git_user_options:
-        git_user_options = "            <option value=\"\">(No Git users configured)</option>"
-    allow_empty_checked = " checked" if escaped_form.get("allow_empty_commit") == "true" else ""
-    branch_mode = escaped_form.get("branch_mode", "default")
-    new_branch_name = escaped_form.get("new_branch", "")
-    branch_mode_default_checked = " checked" if branch_mode == "default" else ""
-    branch_mode_commit_checked = " checked" if branch_mode == "from_commit" else ""
-    branch_mode_orphan_checked = " checked" if branch_mode == "orphan" else ""
-    return f"""<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-    <meta charset=\"utf-8\">
-    <title>git apply web ui</title>
-    <style>
-        body {{
-            font-family: system-ui, sans-serif;
-            margin: 2rem;
-            background: #f5f5f5;
-            color: #222;
-        }}
-        main {{
-            max-width: 960px;
-            margin: 0 auto;
-            background: #fff;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 18px rgba(0,0,0,0.1);
-        }}
-        form {{
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1.5rem;
-        }}
-        label {{
-            font-weight: 600;
-            display: block;
-            margin-bottom: 0.5rem;
-        }}
-        input[type=text], textarea, select {{
-            width: 100%;
-            padding: 0.75rem;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            font-family: monospace;
-            background: #fafafa;
-        }}
-        textarea {{
-            min-height: 220px;
-        }}
-        button {{
-            padding: 0.75rem 1.5rem;
-            background: #2b6cb0;
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-        }}
-        button:hover {{
-            background: #2c5282;
-        }}
-        button.secondary {{
-            background: #4a5568;
-            font-size: 0.9rem;
-            padding: 0.5rem 1rem;
-        }}
-        button.secondary:hover {{
-            background: #2d3748;
-        }}
-        button:disabled {{
-            cursor: not-allowed;
-            opacity: 0.6;
-        }}
-        .logs {{
-            margin-top: 2rem;
-            padding: 1.5rem;
-            border-radius: 10px;
-            background: #1a202c;
-            color: #edf2f7;
-            box-shadow: inset 0 0 8px rgba(0,0,0,0.4);
-        }}
-        .logs.success {{ border: 2px solid #48bb78; }}
-        .logs.failure {{ border: 2px solid #f56565; }}
-        .logs.neutral {{ border: 2px solid #a0aec0; }}
-        .logs pre {{
-            margin: 0;
-            white-space: pre-wrap;
-        }}
-        .field-group {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1rem;
-        }}
-        .toggle-group {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            align-items: center;
-        }}
-        .toggle-group label {{
-            font-weight: 500;
-            margin-bottom: 0;
-        }}
-        .subtle {{
-            color: #4a5568;
-            font-size: 0.9rem;
-        }}
-        .hidden {{
-            display: none;
-        }}
-        .field-header {{
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.75rem;
-        }}
-    </style>
-</head>
-<body>
-<main>
-    <h1>git apply --3way Web UI</h1>
-    <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
-    <form method=\"post\" action=\"/\" id=\"apply_form\" novalidate>
-        <div class=\"field-group\">
-            <div>
-                <label for=\"repository_url\">Repository URL (SSH recommended)</label>
-                <input type=\"text\" id=\"repository_url\" name=\"repository_url\" required value=\"{escaped_form.get('repository_url', '')}\" list=\"repository_history\">
-                <datalist id=\"repository_history\"></datalist>
-                <label for=\"repository_saved\" class=\"subtle\">Saved repositories</label>
-                <select id=\"repository_saved\">
-                    <option value=\"\">Select a saved repository</option>
-                </select>
-            </div>
-            <div id=\"branch_group\">
-                <label for=\"branch\">Branch (optional: use the current branch)</label>
-                <input type=\"text\" id=\"branch\" name=\"branch\" value=\"{escaped_form.get('branch', '')}\" list=\"branch_history\">
-                <datalist id=\"branch_history\"></datalist>
-                <label for=\"branch_saved\" class=\"subtle\">Saved branches</label>
-                <select id=\"branch_saved\">
-                    <option value=\"\">Select a saved branch</option>
-                </select>
-            </div>
-        </div>
-        <div>
-            <label>Mode</label>
-            <div class=\"toggle-group\" role=\"radiogroup\" aria-label=\"Mode\">
-                <label>
-                    <input type=\"radio\" name=\"branch_mode\" value=\"default\"{branch_mode_default_checked}>
-                    Default behavior (checkout when a branch is specified)
-                </label>
-                <label>
-                    <input type=\"radio\" name=\"branch_mode\" value=\"from_commit\"{branch_mode_commit_checked}>
-                    Create a new branch from the specified commit
-                </label>
-                <label>
-                    <input type=\"radio\" name=\"branch_mode\" value=\"orphan\"{branch_mode_orphan_checked}>
-                    Create an orphan branch
-                </label>
-            </div>
-            <p class=\"subtle\">A new branch name is required for commit-based or orphan modes.</p>
-        </div>
-        <div id=\"new_branch_group\" class=\"hidden\">
-            <label for=\"new_branch\">New Branch Name</label>
-            <input type=\"text\" id=\"new_branch\" name=\"new_branch\" value=\"{new_branch_name}\">
-        </div>
-        <div id=\"commit_id_group\" class=\"hidden\">
-            <label for=\"base_commit\">Base Commit ID (e.g., a1b2c3d)</label>
-            <input type=\"text\" id=\"base_commit\" name=\"base_commit\" value=\"{escaped_form.get('base_commit', '')}\">
-        </div>
-        <div id=\"git_user_group\">
-            <label for=\"git_user\">Git User (Name &amp; Email)</label>
-            <select id=\"git_user\" name=\"git_user\">
-{git_user_options}
-            </select>
-        </div>
-        <div id=\"commit_message_group\">
-            <div class=\"field-header\">
-                <label for=\"commit_message\">Commit Message</label>
-                <button type=\"button\" class=\"secondary\" id=\"paste_commit_message\" data-paste-target=\"commit_message\">
-                    Paste from clipboard
-                </button>
-            </div>
-            <textarea id=\"commit_message\" name=\"commit_message\" placeholder=\"e.g., Apply patch from Web UI\">{escaped_form.get('commit_message', '')}</textarea>
-        </div>
-        <div id=\"allow_empty_group\">
-            <label>
-                <input type=\"checkbox\" id=\"allow_empty_commit\" name=\"allow_empty_commit\" value=\"true\"{allow_empty_checked}>
-                Allow empty commit
-            </label>
-        </div>
-        <div id=\"ssh_key_group\">
-            <label for=\"ssh_key_path\">SSH Private Key</label>
-            <select id=\"ssh_key_path\" name=\"ssh_key_path\">
-{ssh_key_options}
-            </select>
-        </div>
-        <div id=\"patch_group\">
-            <div class=\"field-header\">
-                <label for=\"patch\">Patch (applied with git apply --3way -v)</label>
-                <button type=\"button\" class=\"secondary\" id=\"paste_patch\" data-paste-target=\"patch\">
-                    Paste from clipboard
-                </button>
-            </div>
-            <textarea id=\"patch\" name=\"patch\" placeholder=\"diff --git a/...\n\"></textarea>
-        </div>
-        <button type=\"button\" id=\"submit_button\">Apply Patch &amp; Push</button>
-    </form>
-    {log_section}
-</main>
-<script>
-    const form = document.getElementById("apply_form");
-    const submitButton = document.getElementById("submit_button");
-    const allowEmptyCommit = document.getElementById("allow_empty_commit");
-    const patchField = document.getElementById("patch");
-    const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
-    const commitIdGroup = document.getElementById("commit_id_group");
-    const commitIdField = document.getElementById("base_commit");
-    const branchGroup = document.getElementById("branch_group");
-    const repositoryField = document.getElementById("repository_url");
-    const branchField = document.getElementById("branch");
-    const newBranchGroup = document.getElementById("new_branch_group");
-    const newBranchField = document.getElementById("new_branch");
-    const gitUserGroup = document.getElementById("git_user_group");
-    const commitMessageGroup = document.getElementById("commit_message_group");
-    const allowEmptyGroup = document.getElementById("allow_empty_group");
-    const sshKeyGroup = document.getElementById("ssh_key_group");
-    const patchGroup = document.getElementById("patch_group");
-    const gitUserField = document.getElementById("git_user");
-    const commitMessageField = document.getElementById("commit_message");
-    const sshKeyField = document.getElementById("ssh_key_path");
-    const pasteCommitMessageButton = document.getElementById("paste_commit_message");
-    const pastePatchButton = document.getElementById("paste_patch");
-    const logSection = document.getElementById("log_section");
-    const logOutput = document.getElementById("log_output");
-    const logStatus = document.getElementById("log_status");
-    const repositoryHistoryList = document.getElementById("repository_history");
-    const branchHistoryList = document.getElementById("branch_history");
-    const repositorySavedSelect = document.getElementById("repository_saved");
-    const branchSavedSelect = document.getElementById("branch_saved");
-    const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
-    const BRANCH_STORAGE_KEY = "git-webui.branches";
-    const MAX_STORED_VALUES = 10;
-    let logSocket = null;
-    const appendLogLine = (line) => {{
-        if (!logSection || !logOutput || !logStatus) {{
-            return;
-        }}
-        logSection.classList.remove("hidden");
-        logStatus.textContent = "Logs";
-        logOutput.textContent += (logOutput.textContent ? "\\n" : "") + line;
-        logOutput.scrollTop = logOutput.scrollHeight;
-    }};
-    const updateLogStatus = (success) => {{
-        if (!logSection || !logStatus) {{
-            return;
-        }}
-        logSection.classList.remove("success", "failure", "neutral");
-        if (success === true) {{
-            logSection.classList.add("success");
-            logStatus.textContent = "Success";
-        }} else if (success === false) {{
-            logSection.classList.add("failure");
-            logStatus.textContent = "Failure";
-        }} else {{
-            logSection.classList.add("neutral");
-            logStatus.textContent = "Logs";
-        }}
-    }};
-    const connectWebSocket = () => {{
-        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        logSocket = new WebSocket(`${{protocol}}://${{window.location.host}}/ws`);
-        logSocket.addEventListener("message", (event) => {{
-            let payload;
-            try {{
-                payload = JSON.parse(event.data);
-            }} catch (error) {{
-                appendLogLine(event.data);
-                return;
-            }}
-            if (payload.type === "log") {{
-                appendLogLine(payload.line);
-            }}
-            if (payload.type === "complete") {{
-                updateLogStatus(payload.success);
-            }}
-            if (payload.type === "error") {{
-                appendLogLine(payload.message);
-                updateLogStatus(false);
-            }}
-        }});
-    }};
-    const readStoredValues = (key) => {{
-        try {{
-            const raw = window.localStorage.getItem(key);
-            if (!raw) {{
-                return [];
-            }}
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) {{
-                return [];
-            }}
-            return parsed.filter((value) => typeof value === "string");
-        }} catch (error) {{
-            console.warn("Failed to read stored values", error);
-            return [];
-        }}
-    }};
-    const writeStoredValues = (key, values) => {{
-        window.localStorage.setItem(key, JSON.stringify(values));
-    }};
-    const addStoredValue = (key, value) => {{
-        const trimmed = value.trim();
-        if (!trimmed) {{
-            return readStoredValues(key);
-        }}
-        const existing = readStoredValues(key);
-        const nextValues = [trimmed, ...existing.filter((item) => item !== trimmed)].slice(0, MAX_STORED_VALUES);
-        writeStoredValues(key, nextValues);
-        return nextValues;
-    }};
-    const renderStoredOptions = (values, datalist, select, placeholder) => {{
-        if (datalist) {{
-            datalist.innerHTML = values.map((value) => `<option value=\"${{value}}\"></option>`).join("");
-        }}
-        if (select) {{
-            select.innerHTML = "";
-            const placeholderOption = document.createElement("option");
-            placeholderOption.value = "";
-            placeholderOption.textContent = placeholder;
-            select.appendChild(placeholderOption);
-            values.forEach((value) => {{
-                const option = document.createElement("option");
-                option.value = value;
-                option.textContent = value;
-                select.appendChild(option);
-            }});
-        }}
-    }};
-    const refreshStoredSelections = () => {{
-        renderStoredOptions(
-            readStoredValues(REPOSITORY_STORAGE_KEY),
-            repositoryHistoryList,
-            repositorySavedSelect,
-            "Select a saved repository",
-        );
-        renderStoredOptions(
-            readStoredValues(BRANCH_STORAGE_KEY),
-            branchHistoryList,
-            branchSavedSelect,
-            "Select a saved branch",
-        );
-    }};
-    const persistStoredSelections = () => {{
-        const repoValues = addStoredValue(REPOSITORY_STORAGE_KEY, repositoryField.value);
-        const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
-        renderStoredOptions(repoValues, repositoryHistoryList, repositorySavedSelect, "Select a saved repository");
-        renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
-    }};
-    connectWebSocket();
-    const ensureWebSocketReady = () => new Promise((resolve) => {{
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {{
-            resolve();
-            return;
-        }}
-        connectWebSocket();
-        logSocket.addEventListener("open", () => resolve(), {{ once: true }});
-    }});
-    const sendFormOverWebSocket = async () => {{
-        await ensureWebSocketReady();
-        const payload = Object.fromEntries(new FormData(form).entries());
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {{
-            updateLogStatus(null);
-            if (logOutput) {{
-                logOutput.textContent = "";
-            }}
-            logSocket.send(JSON.stringify({{ type: "submit", payload }}));
-        }} else {{
-            appendLogLine("[client] WebSocket connection not ready.");
-            updateLogStatus(false);
-        }}
-    }};
-    const togglePatchRequired = () => {{
-        patchField.required = !allowEmptyCommit.checked;
-        patchGroup.classList.toggle("hidden", allowEmptyCommit.checked);
-        if (allowEmptyCommit.checked) {{
-            patchField.removeAttribute("name");
-            patchField.setAttribute("disabled", "");
-        }} else {{
-            patchField.setAttribute("name", "patch");
-            patchField.removeAttribute("disabled", "");
-        }}
-        if (pastePatchButton) {{
-            pastePatchButton.disabled = patchField.hasAttribute("disabled");
-        }}
-    }};
-    const toggleCommitField = () => {{
-        const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
-        const needsCommit = selectedMode === "from_commit";
-        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan";
-        commitIdGroup.classList.toggle("hidden", !needsCommit);
-        if (needsCommit) {{
-            commitIdField.removeAttribute("disabled");
-        }} else {{
-            commitIdField.setAttribute("disabled", "");
-        }}
-        newBranchGroup.classList.toggle("hidden", !needsNewBranch);
-        if (needsNewBranch) {{
-            newBranchField.removeAttribute("disabled");
-            newBranchField.setAttribute("required", "");
-            branchField.setAttribute("disabled", "");
-        }} else {{
-            newBranchField.setAttribute("disabled", "");
-            newBranchField.removeAttribute("required");
-            branchField.removeAttribute("disabled");
-        }}
-        const hideDetails = selectedMode === "from_commit";
-        branchGroup.classList.toggle("hidden", selectedMode !== "default");
-        if (selectedMode === "default") {{
-            branchField.removeAttribute("disabled");
-        }} else {{
-            branchField.setAttribute("disabled", "");
-        }}
-        gitUserGroup.classList.toggle("hidden", hideDetails);
-        commitMessageGroup.classList.toggle("hidden", hideDetails);
-        allowEmptyGroup.classList.toggle("hidden", hideDetails);
-        patchGroup.classList.toggle("hidden", hideDetails || allowEmptyCommit.checked);
-        if (hideDetails) {{
-            gitUserField.setAttribute("disabled", "");
-            commitMessageField.setAttribute("disabled", "");
-            allowEmptyCommit.setAttribute("disabled", "");
-            patchField.setAttribute("disabled", "");
-            if (pastePatchButton) {{
-                pastePatchButton.disabled = true;
-            }}
-        }} else {{
-            gitUserField.removeAttribute("disabled");
-            commitMessageField.removeAttribute("disabled");
-            allowEmptyCommit.removeAttribute("disabled");
-            togglePatchRequired();
-        }}
-        if (pasteCommitMessageButton) {{
-            pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
-        }}
-    }};
-    togglePatchRequired();
-    allowEmptyCommit.addEventListener("change", togglePatchRequired);
-    branchModeInputs.forEach((input) => {{
-        input.addEventListener("change", toggleCommitField);
-    }});
-    toggleCommitField();
-    const handleSubmit = (event) => {{
-        event.preventDefault();
-        event.stopPropagation();
-        if (logOutput) {{
-            logOutput.textContent = "";
-        }}
-        updateLogStatus(null);
-        persistStoredSelections();
-        sendFormOverWebSocket();
-    }};
-    if (submitButton) {{
-        submitButton.addEventListener("click", handleSubmit);
-    }}
-    form.addEventListener("submit", handleSubmit);
-    form.addEventListener("keydown", (event) => {{
-        if (event.key === "Enter" && event.target.tagName !== "TEXTAREA") {{
-            handleSubmit(event);
-        }}
-    }});
-    const pasteFromClipboard = async (targetId) => {{
-        const target = document.getElementById(targetId);
-        if (!target) {{
-            return;
-        }}
-        try {{
-            const clipboardText = await navigator.clipboard.readText();
-            target.value = clipboardText;
-            target.focus();
-        }} catch (error) {{
-            console.error("Clipboard paste failed", error);
-            alert("Unable to read from the clipboard. Please paste manually.");
-        }}
-    }};
-    const bindPasteButton = (button) => {{
-        if (!button) {{
-            return;
-        }}
-        const targetId = button.getAttribute("data-paste-target");
-        button.addEventListener("click", () => pasteFromClipboard(targetId));
-    }};
-    bindPasteButton(pasteCommitMessageButton);
-    bindPasteButton(pastePatchButton);
-    refreshStoredSelections();
-    if (repositorySavedSelect) {{
-        repositorySavedSelect.addEventListener("change", (event) => {{
-            const selected = event.target.value;
-            if (selected) {{
-                repositoryField.value = selected;
-                repositoryField.focus();
-            }}
-        }});
-    }}
-    if (branchSavedSelect) {{
-        branchSavedSelect.addEventListener("change", (event) => {{
-            const selected = event.target.value;
-            if (selected) {{
-                branchField.value = selected;
-                branchField.focus();
-            }}
-        }});
-    }}
-</script>
-</body>
-</html>
-"""
+    return {
+        "ssh_keys": ssh_keys,
+        "git_users": git_users,
+        "default_ssh_key_index": _find_default_index(APP_CONFIG["ssh_keys"]),
+        "default_git_user_index": _find_default_index(APP_CONFIG["git_users"]),
+    }
+
+
 
 
 def _normalize_form_payload(form: Dict[str, str]) -> Dict[str, str]:
@@ -1122,17 +597,21 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     return {"form_values": form_values, "success": success}
 
 
-async def index(request: web.Request) -> web.Response:
-    if request.method == "GET":
-        return web.Response(text=render_page({}, None), content_type="text/html")
+def _cors_headers() -> Dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    }
 
-    form = await request.post()
-    logs = LogSink(entries=[])
-    result = await process_submission(_normalize_form_payload(dict(form)), logs)
-    return web.Response(
-        text=render_page(result["form_values"], logs.entries, result["success"]),
-        content_type="text/html",
-    )
+
+async def config_handler(request: web.Request) -> web.Response:
+    payload = _serialize_config()
+    return web.json_response(payload, headers=_cors_headers())
+
+
+async def health_handler(request: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"}, headers=_cors_headers())
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -1163,8 +642,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
 
 def create_app() -> web.Application:
     app = web.Application()
-    app.router.add_route("GET", "/", index)
-    app.router.add_route("POST", "/", index)
+    app.router.add_route("GET", "/", health_handler)
+    app.router.add_route("GET", "/api/config", config_handler)
     app.router.add_route("GET", "/ws", websocket_handler)
     return app
 
