@@ -20,6 +20,7 @@ from aiohttp import web
 CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.toml"))
 DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
+MAX_LINE_SIZE = 32 * 1024
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
@@ -743,4 +744,9 @@ def create_app(serve_frontend: bool = False) -> web.Application:
 if __name__ == "__main__":
     args = _parse_args()
     bind, port = _resolve_server_bind(bind_override=args.bind, port_override=args.port)
-    web.run_app(create_app(serve_frontend=args.serve_frontend), host=bind, port=port)
+    web.run_app(
+        create_app(serve_frontend=args.serve_frontend),
+        host=bind,
+        port=port,
+        max_line_size=MAX_LINE_SIZE,
+    )
