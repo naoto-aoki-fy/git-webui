@@ -74,3 +74,27 @@ If either list is empty the corresponding dropdown shows that no options are ava
 - Set `GIT_WEBUI_REPO_ROOT` to override the repository workspace location.
 - Logs include timestamps (UTC) for each command and their outputs, helping identify at which step a failure occurred.
 - The web UI does not persist any sensitive data such as SSH keys or patches, but it does store recently used repository/branch values and the backend URL in browser local storage.
+
+## Prefilling the UI via URL query parameters
+
+The frontend reads URL query parameters on load and uses them to prefill form inputs. This is handy for sharing a prepared link or for automation. After applying the values, the UI removes the query string from the browser address bar.
+
+Supported parameters:
+
+- `backend_url`
+- `repository_url`
+- `branch`
+- `branch_mode` (`default`, `from_commit`, or `orphan`)
+- `new_branch`
+- `base_commit`
+- `git_user`
+- `commit_message`
+- `allow_empty_commit` (`true`, `1`, `yes`, or `on`)
+- `ssh_key_path`
+- `patch`
+
+Example:
+
+```
+http://localhost:8000/?repository_url=git@github.com:example/repo.git&branch=main&commit_message=Hello&allow_empty_commit=true
+```
