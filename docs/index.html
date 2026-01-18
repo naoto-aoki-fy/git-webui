@@ -121,6 +121,42 @@
             background: #fed7d7;
             color: #742a2a;
         }
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.45);
+            padding: 1.5rem;
+            z-index: 1000;
+        }
+        .modal.hidden {
+            display: none;
+        }
+        .modal-content {
+            background: #fff;
+            border-radius: 16px;
+            padding: 1.5rem 2rem;
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+        }
+        .modal-content.success {
+            border-top: 6px solid #48bb78;
+        }
+        .modal-content.failure {
+            border-top: 6px solid #f56565;
+        }
+        .modal-actions {
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: center;
+        }
+        .modal-actions button {
+            min-width: 120px;
+        }
     </style>
 </head>
 <body>
@@ -228,6 +264,15 @@
         <pre id="log_output"></pre>
     </section>
 </main>
+<div id="result_modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="result_title">
+    <div class="modal-content" role="document">
+        <h2 id="result_title">Request Complete</h2>
+        <p id="result_message">Your request has finished.</p>
+        <div class="modal-actions">
+            <button type="button" id="result_close">Close</button>
+        </div>
+    </div>
+</div>
 <script>
     const form = document.getElementById("apply_form");
     const submitButton = document.getElementById("submit_button");
@@ -260,6 +305,10 @@
     const backendUrlField = document.getElementById("backend_url");
     const backendApplyButton = document.getElementById("backend_apply");
     const backendStatus = document.getElementById("backend_status");
+    const resultModal = document.getElementById("result_modal");
+    const resultTitle = document.getElementById("result_title");
+    const resultMessage = document.getElementById("result_message");
+    const resultCloseButton = document.getElementById("result_close");
 
     const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
     const BRANCH_STORAGE_KEY = "git-webui.branches";
@@ -308,6 +357,30 @@
             logSection.classList.add("neutral");
             logStatus.textContent = "Logs";
         }
+    };
+
+    const showResultModal = (success, message) => {
+        if (!resultModal || !resultTitle || !resultMessage) {
+            return;
+        }
+        const modalContent = resultModal.querySelector(".modal-content");
+        if (modalContent) {
+            modalContent.classList.remove("success", "failure");
+            modalContent.classList.add(success ? "success" : "failure");
+        }
+        resultTitle.textContent = success ? "Request Succeeded" : "Request Failed";
+        resultMessage.textContent = message;
+        resultModal.classList.remove("hidden");
+        if (resultCloseButton) {
+            resultCloseButton.focus();
+        }
+    };
+
+    const hideResultModal = () => {
+        if (!resultModal) {
+            return;
+        }
+        resultModal.classList.add("hidden");
     };
 
     const clearProcessingFields = () => {
@@ -378,10 +451,17 @@
             if (payload.type === "complete") {
                 updateLogStatus(payload.success);
                 clearProcessingFields();
+                showResultModal(
+                    payload.success,
+                    payload.success
+                        ? "The request finished successfully."
+                        : "The request finished, but there were errors. Review the logs for details.",
+                );
             }
             if (payload.type === "error") {
                 appendLogLine(payload.message);
                 updateLogStatus(false);
+                showResultModal(false, payload.message || "The request failed. Review the logs for details.");
             }
         });
     };
@@ -825,6 +905,17 @@
 
     if (backendApplyButton) {
         backendApplyButton.addEventListener("click", applyBackend);
+    }
+
+    if (resultCloseButton) {
+        resultCloseButton.addEventListener("click", hideResultModal);
+    }
+    if (resultModal) {
+        resultModal.addEventListener("click", (event) => {
+            if (event.target === resultModal) {
+                hideResultModal();
+            }
+        });
     }
 
     const savedDraft = readDraft();
