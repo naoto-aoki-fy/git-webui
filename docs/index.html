@@ -264,8 +264,10 @@
     const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
     const BRANCH_STORAGE_KEY = "git-webui.branches";
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
+    const DRAFT_STORAGE_KEY = "git-webui.draft";
     const MAX_STORED_VALUES = 10;
     let logSocket = null;
+    let draftSaveTimeout = null;
 
     const updateBackendStatus = (state, message) => {
         if (!backendStatus) {
@@ -443,6 +445,84 @@
         renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
     };
 
+    const readDraft = () => {
+        try {
+            const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+            if (!raw) {
+                return {};
+            }
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (error) {
+            console.warn("Failed to read draft input", error);
+            return {};
+        }
+    };
+
+    const writeDraft = (draft) => {
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    };
+
+    const getSelectedBranchMode = () => {
+        const selected = document.querySelector("input[name='branch_mode']:checked");
+        return selected ? selected.value : "default";
+    };
+
+    const collectDraft = () => ({
+        backend_url: backendUrlField ? backendUrlField.value : "",
+        repository_url: repositoryField.value,
+        branch: branchField.value,
+        branch_mode: getSelectedBranchMode(),
+        new_branch: newBranchField.value,
+        base_commit: commitIdField.value,
+        git_user: gitUserField.value,
+        commit_message: commitMessageField.value,
+        allow_empty_commit: allowEmptyCommit.checked,
+        ssh_key_path: sshKeyField.value,
+        patch: patchField.value,
+    });
+
+    const applyDraftValue = (field, value) => {
+        if (!field || value === undefined || value === null) {
+            return;
+        }
+        field.value = value;
+    };
+
+    const applyDraft = (draft) => {
+        if (!draft || typeof draft !== "object") {
+            return;
+        }
+        if (backendUrlField && typeof draft.backend_url === "string") {
+            backendUrlField.value = draft.backend_url;
+        }
+        applyDraftValue(repositoryField, draft.repository_url);
+        applyDraftValue(branchField, draft.branch);
+        if (typeof draft.branch_mode === "string") {
+            branchModeInputs.forEach((input) => {
+                input.checked = input.value === draft.branch_mode;
+            });
+        }
+        applyDraftValue(newBranchField, draft.new_branch);
+        applyDraftValue(commitIdField, draft.base_commit);
+        applyDraftValue(gitUserField, draft.git_user);
+        applyDraftValue(commitMessageField, draft.commit_message);
+        if (typeof draft.allow_empty_commit === "boolean") {
+            allowEmptyCommit.checked = draft.allow_empty_commit;
+        }
+        applyDraftValue(sshKeyField, draft.ssh_key_path);
+        applyDraftValue(patchField, draft.patch);
+    };
+
+    const scheduleDraftSave = () => {
+        if (draftSaveTimeout) {
+            window.clearTimeout(draftSaveTimeout);
+        }
+        draftSaveTimeout = window.setTimeout(() => {
+            writeDraft(collectDraft());
+        }, 200);
+    };
+
     const ensureWebSocketReady = () => new Promise((resolve) => {
         if (logSocket && logSocket.readyState === WebSocket.OPEN) {
             resolve();
@@ -609,12 +689,10 @@
         appendLogLine(`[client] Using backend ${backendUrl}`);
     };
 
-    togglePatchRequired();
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
     branchModeInputs.forEach((input) => {
         input.addEventListener("change", toggleCommitField);
     });
-    toggleCommitField();
 
     const handleSubmit = (event) => {
         event.preventDefault();
@@ -646,6 +724,7 @@
             const clipboardText = await navigator.clipboard.readText();
             target.value = clipboardText;
             target.focus();
+            scheduleDraftSave();
         } catch (error) {
             console.error("Clipboard paste failed", error);
             alert("Unable to read from the clipboard. Please paste manually.");
@@ -663,6 +742,52 @@
     bindPasteButton(pasteCommitMessageButton);
     bindPasteButton(pastePatchButton);
     refreshStoredSelections();
+
+    const prefillFromQueryParams = () => {
+        const params = new URLSearchParams(window.location.search);
+        if ([...params.keys()].length === 0) {
+            return;
+        }
+        if (params.has("backend_url") && backendUrlField) {
+            backendUrlField.value = params.get("backend_url") || "";
+        }
+        if (params.has("repository_url")) {
+            repositoryField.value = params.get("repository_url") || "";
+        }
+        if (params.has("branch")) {
+            branchField.value = params.get("branch") || "";
+        }
+        if (params.has("branch_mode")) {
+            const mode = params.get("branch_mode") || "";
+            branchModeInputs.forEach((input) => {
+                input.checked = input.value === mode;
+            });
+        }
+        if (params.has("new_branch")) {
+            newBranchField.value = params.get("new_branch") || "";
+        }
+        if (params.has("base_commit")) {
+            commitIdField.value = params.get("base_commit") || "";
+        }
+        if (params.has("git_user")) {
+            gitUserField.value = params.get("git_user") || "";
+        }
+        if (params.has("commit_message")) {
+            commitMessageField.value = params.get("commit_message") || "";
+        }
+        if (params.has("allow_empty_commit")) {
+            const allowEmptyValue = (params.get("allow_empty_commit") || "").toLowerCase();
+            allowEmptyCommit.checked = ["true", "1", "yes", "on"].includes(allowEmptyValue);
+        }
+        if (params.has("ssh_key_path")) {
+            sshKeyField.value = params.get("ssh_key_path") || "";
+        }
+        if (params.has("patch")) {
+            patchField.value = params.get("patch") || "";
+        }
+        const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+        window.history.pushState({}, "", cleanUrl);
+    };
 
     if (repositorySavedSelect) {
         repositorySavedSelect.addEventListener("change", (event) => {
@@ -688,7 +813,18 @@
         backendApplyButton.addEventListener("click", applyBackend);
     }
 
-    const initialBackend = setBackendUrl(getBackendUrl());
+    const savedDraft = readDraft();
+    applyDraft(savedDraft);
+    prefillFromQueryParams();
+    togglePatchRequired();
+    toggleCommitField();
+    scheduleDraftSave();
+
+    form.addEventListener("input", scheduleDraftSave);
+    form.addEventListener("change", scheduleDraftSave);
+
+    const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
+    const initialBackend = setBackendUrl(startingBackend);
     updateBackendStatus("", "connecting");
     if (backendUrlField) {
         backendUrlField.value = initialBackend;
