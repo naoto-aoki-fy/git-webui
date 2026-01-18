@@ -310,6 +310,19 @@
         }
     };
 
+    const clearProcessingFields = () => {
+        if (commitMessageField) {
+            commitMessageField.value = "";
+        }
+        if (patchField) {
+            patchField.value = "";
+        }
+        if (newBranchField) {
+            newBranchField.value = "";
+        }
+        scheduleDraftSave();
+    };
+
     const normalizeBackendUrl = (value) => {
         const trimmed = value.trim();
         return trimmed.replace(/\/+$/, "");
@@ -364,6 +377,7 @@
             }
             if (payload.type === "complete") {
                 updateLogStatus(payload.success);
+                clearProcessingFields();
             }
             if (payload.type === "error") {
                 appendLogLine(payload.message);
