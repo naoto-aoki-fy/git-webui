@@ -109,3 +109,5 @@ Example:
 ```
 http://localhost:8000/?repository_url=git@github.com:example/repo.git&branch=main&commit_message=Hello&allow_empty_commit=true
 ```
+
+The `bookmarklet/codex.js` helper can generate a prefilled Codex coding results page by opening the web UI with the relevant query parameters already set.
