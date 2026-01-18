@@ -734,9 +734,7 @@ def create_app(serve_frontend: bool = False) -> web.Application:
             raise RuntimeError(f"Frontend root not found at {frontend_root}")
         app["frontend_root"] = frontend_root
         app.router.add_route("GET", "/", frontend_handler)
-        app.router.add_route("POST", "/", frontend_handler)
         app.router.add_route("GET", "/index.html", frontend_handler)
-        app.router.add_route("POST", "/index.html", frontend_handler)
     else:
         app.router.add_route("GET", "/", health_handler)
     return app
