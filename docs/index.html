@@ -254,6 +254,9 @@
                 <button type="button" class="secondary" id="paste_patch" data-paste-target="patch">
                     Paste from clipboard
                 </button>
+                <button type="button" class="secondary" id="copy_patch">
+                    Copy to clipboard
+                </button>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/...\n"></textarea>
         </div>
@@ -298,6 +301,7 @@
     const sshKeyField = document.getElementById("ssh_key_path");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
+    const copyPatchButton = document.getElementById("copy_patch");
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
@@ -658,6 +662,9 @@
         if (pastePatchButton) {
             pastePatchButton.disabled = patchField.hasAttribute("disabled");
         }
+        if (copyPatchButton) {
+            copyPatchButton.disabled = patchField.hasAttribute("disabled");
+        }
     };
 
     const toggleCommitField = () => {
@@ -698,6 +705,9 @@
             patchField.setAttribute("disabled", "");
             if (pastePatchButton) {
                 pastePatchButton.disabled = true;
+            }
+            if (copyPatchButton) {
+                copyPatchButton.disabled = true;
             }
         } else {
             gitUserField.removeAttribute("disabled");
@@ -836,6 +846,31 @@
         }
     };
 
+    const copyPatchToClipboard = async () => {
+        if (!patchField) {
+            return;
+        }
+        patchField.focus();
+        patchField.select();
+        let copySucceeded = false;
+        try {
+            copySucceeded = document.execCommand("copy");
+        } catch (error) {
+            console.warn("document.execCommand copy failed", error);
+        }
+        if (!copySucceeded) {
+            try {
+                await navigator.clipboard.writeText(patchField.value);
+                copySucceeded = true;
+            } catch (error) {
+                console.error("Clipboard copy failed", error);
+            }
+        }
+        if (!copySucceeded) {
+            alert("Unable to copy the patch to the clipboard. Please copy manually.");
+        }
+    };
+
     const bindPasteButton = (button) => {
         if (!button) {
             return;
@@ -846,6 +881,9 @@
 
     bindPasteButton(pasteCommitMessageButton);
     bindPasteButton(pastePatchButton);
+    if (copyPatchButton) {
+        copyPatchButton.addEventListener("click", copyPatchToClipboard);
+    }
     refreshStoredSelections();
 
     const normalizeBase64 = (value) => {
