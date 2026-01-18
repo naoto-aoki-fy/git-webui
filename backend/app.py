@@ -17,15 +17,17 @@ import traceback
 from aiohttp import web
 
 CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.toml"))
+DEFAULT_BIND = "0.0.0.0"
+DEFAULT_PORT = 8080
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
 REPO_ROOT = Path(os.environ.get("GIT_WEBUI_REPO_ROOT", "repos")).expanduser()
 REPO_ROOT.mkdir(parents=True, exist_ok=True)
 
-def _load_config() -> Dict[str, List[Dict[str, str]]]:
+def _load_config() -> Dict[str, object]:
     if not CONFIG_PATH.exists():
-        return {"ssh_keys": [], "git_users": []}
+        return {"ssh_keys": [], "git_users": [], "server": {}}
 
     with CONFIG_PATH.open("rb") as config_file:
         try:
@@ -35,10 +37,15 @@ def _load_config() -> Dict[str, List[Dict[str, str]]]:
 
     ssh_keys = data.get("ssh_keys", [])
     git_users = data.get("git_users", [])
+    server = data.get("server", {})
     if not isinstance(ssh_keys, list) or not isinstance(git_users, list):
         raise RuntimeError("Configuration file must define 'ssh_keys' and 'git_users' as lists")
+    if server is None:
+        server = {}
+    if not isinstance(server, dict):
+        raise RuntimeError("Configuration file 'server' must be a table if provided")
 
-    return {"ssh_keys": ssh_keys, "git_users": git_users}
+    return {"ssh_keys": ssh_keys, "git_users": git_users, "server": server}
 
 
 APP_CONFIG = _load_config()
@@ -106,6 +113,33 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     if "\\" in raw_path or ":" in raw_path:
         return shlex.quote(PureWindowsPath(raw_path).as_posix())
     return shlex.quote(str(resolved_path))
+
+
+def _parse_port(value: object) -> int:
+    if isinstance(value, bool):
+        raise RuntimeError("Server port must be an integer between 1 and 65535")
+    if isinstance(value, int):
+        port = value
+    elif isinstance(value, str) and value.strip():
+        try:
+            port = int(value.strip())
+        except ValueError as exc:
+            raise RuntimeError(f"Server port must be an integer, got {value!r}") from exc
+    else:
+        raise RuntimeError("Server port must be an integer between 1 and 65535")
+
+    if not 1 <= port <= 65535:
+        raise RuntimeError("Server port must be between 1 and 65535")
+    return port
+
+
+def _resolve_server_bind() -> tuple[str, int]:
+    server_config = APP_CONFIG.get("server", {})
+    env_bind = os.environ.get("GIT_WEBUI_BIND", "").strip()
+    env_port = os.environ.get("GIT_WEBUI_PORT", "").strip()
+    bind = env_bind or server_config.get("bind", DEFAULT_BIND)
+    port_source = env_port or server_config.get("port", DEFAULT_PORT)
+    return bind, _parse_port(port_source)
 
 
 def _repo_workspace_for_url(repository_url: str) -> Path:
@@ -649,4 +683,5 @@ def create_app() -> web.Application:
 
 
 if __name__ == "__main__":
-    web.run_app(create_app())
+    bind, port = _resolve_server_bind()
+    web.run_app(create_app(), host=bind, port=port)

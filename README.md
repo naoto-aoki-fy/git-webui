@@ -28,7 +28,7 @@ pip install -r requirements.txt
 python backend/app.py
 ```
 
-The backend listens on `http://0.0.0.0:8080/` by default.
+The backend listens on `http://0.0.0.0:8080/` by default (override with the `GIT_WEBUI_BIND`/`GIT_WEBUI_PORT` environment variables or the `[server]` config table).
 
 Serve the static frontend separately (for example):
 
@@ -61,10 +61,15 @@ label = "Example User"
 name = "Example User"
 email = "user@example.com"
 default = true
+
+[server]
+bind = "0.0.0.0"
+port = 8080
 ```
 
 - `ssh_keys`: the path is used directly with `ssh -i`. The label is shown in the dropdown. Set `default = true` to preselect a key in the UI.
 - `git_users`: the name/email pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI.
+- `server`: optionally set `bind` and `port` for the backend listener (environment variables `GIT_WEBUI_BIND` and `GIT_WEBUI_PORT` take precedence).
 
 If either list is empty the corresponding dropdown shows that no options are available.
 

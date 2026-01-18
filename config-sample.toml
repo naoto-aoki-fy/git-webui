@@ -31,3 +31,7 @@ label = "Customer (Contract)"
 name = "Taro Yamada"
 email = "taro.yamada@customer.example"
 default = false
+
+[server]
+bind = "0.0.0.0"
+port = 8080
