@@ -848,7 +848,33 @@
     bindPasteButton(pastePatchButton);
     refreshStoredSelections();
 
-    const prefillFromQueryParams = () => {
+    const normalizeBase64 = (value) => {
+        const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+        const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+        return `${normalized}${padding}`;
+    };
+
+    const decodeGzipBase64 = async (value) => {
+        if (!value) {
+            return "";
+        }
+        if (typeof DecompressionStream === "undefined") {
+            console.warn("DecompressionStream is not available; cannot decode gzip patch.");
+            return null;
+        }
+        try {
+            const normalized = normalizeBase64(value);
+            const binary = atob(normalized);
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            const decompressedStream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+            return await new Response(decompressedStream).text();
+        } catch (error) {
+            console.warn("Failed to decode gzip patch from query string.", error);
+            return null;
+        }
+    };
+
+    const prefillFromQueryParams = async () => {
         const params = new URLSearchParams(window.location.search);
         if ([...params.keys()].length === 0) {
             return;
@@ -888,7 +914,9 @@
             sshKeyField.value = params.get("ssh_key_path") || "";
         }
         if (params.has("patch")) {
-            patchField.value = params.get("patch") || "";
+            const patchParam = params.get("patch") || "";
+            const decodedPatch = await decodeGzipBase64(patchParam);
+            patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
         const cleanUrl = `${window.location.pathname}${window.location.hash}`;
         window.history.pushState({}, "", cleanUrl);
