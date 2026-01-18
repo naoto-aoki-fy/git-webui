@@ -689,6 +689,8 @@ async def frontend_handler(request: web.Request) -> web.Response:
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     websocket = web.WebSocketResponse()
     await websocket.prepare(request)
+    sockets: set[web.WebSocketResponse] = request.app["websockets"]
+    sockets.add(websocket)
     try:
         async for msg in websocket:
             if msg.type == web.WSMsgType.TEXT:
@@ -708,12 +710,21 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
             if msg.type == web.WSMsgType.ERROR:
                 break
     finally:
-        pass
+        sockets.discard(websocket)
     return websocket
+
+
+async def close_websockets(app: web.Application) -> None:
+    sockets: set[web.WebSocketResponse] = app["websockets"]
+    if not sockets:
+        return
+    await asyncio.gather(*(socket.close() for socket in list(sockets)))
 
 
 def create_app(serve_frontend: bool = False) -> web.Application:
     app = web.Application()
+    app["websockets"] = set()
+    app.on_shutdown.append(close_websockets)
     app.router.add_route("GET", "/api/health", health_handler)
     app.router.add_route("GET", "/api/config", config_handler)
     app.router.add_route("GET", "/ws", websocket_handler)

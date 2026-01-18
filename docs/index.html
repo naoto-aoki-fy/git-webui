@@ -260,7 +260,10 @@
         <button type="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
     <section id="log_section" class="logs hidden">
-        <h2 id="log_status">Logs</h2>
+        <div class="field-header">
+            <h2 id="log_status">Logs</h2>
+            <button type="button" class="secondary" id="clear_logs">Clear logs</button>
+        </div>
         <pre id="log_output"></pre>
     </section>
 </main>
@@ -298,6 +301,7 @@
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
+    const clearLogsButton = document.getElementById("clear_logs");
     const repositoryHistoryList = document.getElementById("repository_history");
     const branchHistoryList = document.getElementById("branch_history");
     const repositorySavedSelect = document.getElementById("repository_saved");
@@ -788,19 +792,26 @@
         input.addEventListener("change", toggleCommitField);
     });
 
-    const handleSubmit = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+    const clearLogs = () => {
         if (logOutput) {
             logOutput.textContent = "";
         }
         updateLogStatus(null);
+    };
+
+    const handleSubmit = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        clearLogs();
         persistStoredSelections();
         sendFormOverWebSocket();
     };
 
     if (submitButton) {
         submitButton.addEventListener("click", handleSubmit);
+    }
+    if (clearLogsButton) {
+        clearLogsButton.addEventListener("click", clearLogs);
     }
     form.addEventListener("submit", handleSubmit);
     form.addEventListener("keydown", (event) => {
