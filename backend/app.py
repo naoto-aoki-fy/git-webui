@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import os
@@ -133,13 +134,39 @@ def _parse_port(value: object) -> int:
     return port
 
 
-def _resolve_server_bind() -> tuple[str, int]:
+def _resolve_server_bind(
+    bind_override: Optional[str] = None,
+    port_override: Optional[int] = None,
+) -> tuple[str, int]:
     server_config = APP_CONFIG.get("server", {})
     env_bind = os.environ.get("GIT_WEBUI_BIND", "").strip()
     env_port = os.environ.get("GIT_WEBUI_PORT", "").strip()
-    bind = env_bind or server_config.get("bind", DEFAULT_BIND)
-    port_source = env_port or server_config.get("port", DEFAULT_PORT)
+    bind = bind_override or env_bind or server_config.get("bind", DEFAULT_BIND)
+    port_source = port_override if port_override is not None else env_port or server_config.get("port", DEFAULT_PORT)
     return bind, _parse_port(port_source)
+
+
+def _parse_port_argument(value: str) -> int:
+    try:
+        return _parse_port(value)
+    except RuntimeError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the git-webui backend server.")
+    parser.add_argument("--bind", help="Bind address for the backend server.")
+    parser.add_argument("--port", type=_parse_port_argument, help="Port number for the backend server.")
+    parser.add_argument(
+        "--serve-frontend",
+        action="store_true",
+        help="Serve the frontend UI from the backend server.",
+    )
+    return parser.parse_args()
+
+
+def _frontend_root() -> Path:
+    return Path(__file__).resolve().parent.parent / "docs"
 
 
 def _repo_workspace_for_url(repository_url: str) -> Path:
@@ -648,6 +675,11 @@ async def health_handler(request: web.Request) -> web.Response:
     return web.json_response({"status": "ok"}, headers=_cors_headers())
 
 
+async def frontend_handler(request: web.Request) -> web.Response:
+    frontend_root = request.app["frontend_root"]
+    return web.FileResponse(frontend_root / "index.html")
+
+
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     websocket = web.WebSocketResponse()
     await websocket.prepare(request)
@@ -674,14 +706,24 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     return websocket
 
 
-def create_app() -> web.Application:
+def create_app(serve_frontend: bool = False) -> web.Application:
     app = web.Application()
-    app.router.add_route("GET", "/", health_handler)
+    app.router.add_route("GET", "/api/health", health_handler)
     app.router.add_route("GET", "/api/config", config_handler)
     app.router.add_route("GET", "/ws", websocket_handler)
+    if serve_frontend:
+        frontend_root = _frontend_root()
+        if not frontend_root.exists():
+            raise RuntimeError(f"Frontend root not found at {frontend_root}")
+        app["frontend_root"] = frontend_root
+        app.router.add_route("GET", "/", frontend_handler)
+        app.router.add_route("GET", "/index.html", frontend_handler)
+    else:
+        app.router.add_route("GET", "/", health_handler)
     return app
 
 
 if __name__ == "__main__":
-    bind, port = _resolve_server_bind()
-    web.run_app(create_app(), host=bind, port=port)
+    args = _parse_args()
+    bind, port = _resolve_server_bind(bind_override=args.bind, port_override=args.port)
+    web.run_app(create_app(serve_frontend=args.serve_frontend), host=bind, port=port)

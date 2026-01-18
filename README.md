@@ -28,7 +28,13 @@ pip install -r requirements.txt
 python backend/app.py
 ```
 
-The backend listens on `http://0.0.0.0:8080/` by default (override with the `GIT_WEBUI_BIND`/`GIT_WEBUI_PORT` environment variables or the `[server]` config table).
+The backend listens on `http://0.0.0.0:8080/` by default (override with the `--bind`/`--port` CLI flags, the `GIT_WEBUI_BIND`/`GIT_WEBUI_PORT` environment variables, or the `[server]` config table).
+
+Serve the frontend from the same server:
+
+```bash
+python backend/app.py --serve-frontend
+```
 
 Serve the static frontend separately (for example):
 
