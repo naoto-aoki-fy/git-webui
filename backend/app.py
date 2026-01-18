@@ -370,20 +370,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if fetch_result.returncode != 0:
                     raise RuntimeError("git fetch failed")
                 _log_debug(logs, "git fetch completed.")
-                _log_debug(logs, "Pulling latest changes from origin.")
-                pull_result = await run_command(
-                    "git",
-                    "-c",
-                    "core.hooksPath=" + DEVNULL,
-                    "pull",
-                    "--ff-only",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if pull_result.returncode != 0:
-                    raise RuntimeError("git pull failed")
-                _log_debug(logs, "git pull completed.")
             else:
                 logs.append(_timestamped(f"Cloning repository {repository_url}"))
                 _log_debug(logs, "Starting git clone.")
@@ -430,6 +416,26 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if config_result.returncode != 0:
                     raise RuntimeError("Failed to set git user.email")
                 _log_debug(logs, "git user.email configured.")
+
+            if branch_mode not in {"from_commit", "orphan"} and not branch:
+                _log_debug(logs, "No branch specified; resolving default branch from origin/HEAD.")
+                default_branch_result = await run_command(
+                    "git",
+                    "symbolic-ref",
+                    "--quiet",
+                    "--short",
+                    "refs/remotes/origin/HEAD",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if default_branch_result.returncode == 0:
+                    resolved = default_branch_result.stdout.strip()
+                    if resolved.startswith("origin/"):
+                        resolved = resolved.split("/", 1)[1]
+                    if resolved:
+                        branch = resolved
+                        _log_debug(logs, f"Resolved default branch '{branch}'.")
 
             if branch_mode == "from_commit":
                 logs.append(_timestamped(f"Creating branch {new_branch} from commit {base_commit}."))
