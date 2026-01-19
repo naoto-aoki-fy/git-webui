@@ -59,6 +59,25 @@
         button.secondary:hover {
             background: #2d3748;
         }
+        a.secondary-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            background: #4a5568;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            text-decoration: none;
+        }
+        a.secondary-link:hover {
+            background: #2d3748;
+        }
+        a.secondary-link.disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+            pointer-events: none;
+        }
         button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
@@ -257,6 +276,9 @@
                 <button type="button" class="secondary" id="copy_patch">
                     Copy to clipboard
                 </button>
+                <a class="secondary-link" id="patch_chatgpt_link" target="_blank" rel="noopener noreferrer">
+                    Open in ChatGPT
+                </a>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/...\n"></textarea>
         </div>
@@ -302,6 +324,7 @@
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
     const copyPatchButton = document.getElementById("copy_patch");
+    const patchChatgptLink = document.getElementById("patch_chatgpt_link");
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
@@ -584,6 +607,16 @@
         patch: patchField.value,
     });
 
+    const updatePatchChatgptLink = () => {
+        if (!patchChatgptLink || !patchField) {
+            return;
+        }
+        const patchValue = patchField.value || "";
+        patchChatgptLink.href = `https://chatgpt.com/?q=${encodeURIComponent(patchValue)}`;
+        patchChatgptLink.classList.toggle("disabled", patchField.hasAttribute("disabled"));
+        patchChatgptLink.setAttribute("aria-disabled", patchField.hasAttribute("disabled"));
+    };
+
     const applyDraftValue = (field, value) => {
         if (!field || value === undefined || value === null) {
             return;
@@ -614,6 +647,7 @@
         }
         applyDraftValue(sshKeyField, draft.ssh_key_path);
         applyDraftValue(patchField, draft.patch);
+        updatePatchChatgptLink();
     };
 
     const scheduleDraftSave = () => {
@@ -665,6 +699,7 @@
         if (copyPatchButton) {
             copyPatchButton.disabled = patchField.hasAttribute("disabled");
         }
+        updatePatchChatgptLink();
     };
 
     const toggleCommitField = () => {
@@ -715,6 +750,7 @@
             allowEmptyCommit.removeAttribute("disabled");
             togglePatchRequired();
         }
+        updatePatchChatgptLink();
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
@@ -956,6 +992,7 @@
             const decodedPatch = await decodeGzipBase64(patchParam);
             patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
+        updatePatchChatgptLink();
         const cleanUrl = `${window.location.pathname}${window.location.hash}`;
         window.history.pushState({}, "", cleanUrl);
     };
@@ -1000,10 +1037,14 @@
     prefillFromQueryParams();
     togglePatchRequired();
     toggleCommitField();
+    updatePatchChatgptLink();
     scheduleDraftSave();
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
+    if (patchField) {
+        patchField.addEventListener("input", updatePatchChatgptLink);
+    }
 
     const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
     const initialBackend = setBackendUrl(startingBackend);
