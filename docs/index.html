@@ -612,7 +612,24 @@
             return;
         }
         const patchValue = patchField.value || "";
-        patchChatgptLink.href = `https://chatgpt.com/?q=${encodeURIComponent(patchValue)}`;
+        const query = `Based on the changes described after “---- Changes ----”, propose three English Git commit message candidates.
+
+Output requirements:
+
+* Follow the Conventional Commits format. The title line must always use the \`type(scope): summary\` format (e.g., \`refactor(config): ...\`).
+* Do not output any headings such as \`Subject:\` or \`Body:\`.
+* Each proposal must follow this order: “one-line title” → “blank line” → “body”. The body should be a bulleted list (\`-\`) with approximately 2–5 lines.
+* The three proposals must be differentiated so that their wording and level of detail (short / standard / more detailed) do not overlap.
+* Each proposal must be output in a code block (use a separate code block for each proposal).
+
+Evaluation requirements:
+
+* Immediately after each proposal, include the “Recommended adoption level (High / Medium / Low)” and the “Reason” in English (1–3 sentences).
+* In the reason, consider the following aspects: coverage of the changes, clarity, conformity with Conventional Commits, and future searchability (appropriateness of scope/type).
+
+---- Changes ----
+` + patchValue;
+        patchChatgptLink.href = "https://chatgpt.com/?q=" + encodeURIComponent(query);
         patchChatgptLink.classList.toggle("disabled", patchField.hasAttribute("disabled"));
         patchChatgptLink.setAttribute("aria-disabled", patchField.hasAttribute("disabled"));
     };
