@@ -514,10 +514,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return {"form_values": form_values, "success": False}
-    if branch_mode == "from_commit" and not base_commit:
-        _log_debug(logs, "Base commit missing for branch creation.")
-        logs.append(_timestamped("Base commit ID is required when creating a branch from a commit."))
-        return {"form_values": form_values, "success": False}
+    if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
+        _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
     if branch_mode in {"from_commit", "orphan"} and not new_branch:
         _log_debug(logs, "New branch name missing for selected branch mode.")
         logs.append(_timestamped("New branch name is required for commit/orphan branch creation modes."))
@@ -631,6 +629,11 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 branch = default_branch
 
             if branch_mode == "from_commit":
+                if not base_commit or base_commit.upper() == "HEAD":
+                    default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
+                    base_commit = f"origin/{default_branch}"
+                    logs.append(_timestamped(f"Using {base_commit} as the base for branch creation."))
+                    _log_debug(logs, f"Resolved base commit to '{base_commit}' for branch creation.")
                 logs.append(_timestamped(f"Creating branch {new_branch} from commit {base_commit}."))
                 _log_debug(logs, f"Creating branch '{new_branch}' from commit '{base_commit}'.")
                 create_branch_result = await run_command(
