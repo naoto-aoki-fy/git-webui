@@ -5,6 +5,7 @@ import os
 import re
 import shlex
 import tempfile
+import secrets
 import tomllib
 import hashlib
 from contextlib import contextmanager
@@ -115,6 +116,204 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     if "\\" in raw_path or ":" in raw_path:
         return shlex.quote(PureWindowsPath(raw_path).as_posix())
     return shlex.quote(str(resolved_path))
+
+
+async def _git_ref_exists(
+    repo_dir: Path,
+    ref: str,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> bool:
+    result = await run_command(
+        "git",
+        "show-ref",
+        "--verify",
+        ref,
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    return result.returncode == 0
+
+
+async def _resolve_default_branch(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> str:
+    _log_debug(logs, "Resolving default branch from origin/HEAD.")
+    default_branch_result = await run_command(
+        "git",
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "refs/remotes/origin/HEAD",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if default_branch_result.returncode != 0:
+        raise RuntimeError("Unable to resolve default branch from origin/HEAD")
+    resolved = default_branch_result.stdout.strip()
+    if resolved.startswith("origin/"):
+        resolved = resolved.split("/", 1)[1]
+    if not resolved:
+        raise RuntimeError("Resolved default branch name is empty")
+    if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{resolved}", env, logs):
+        raise RuntimeError(f"origin/{resolved} does not exist")
+    _log_debug(logs, f"Resolved default branch '{resolved}'.")
+    return resolved
+
+
+async def _generate_unique_temp_branch(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> str:
+    while True:
+        candidate = f"tmp-clean-{secrets.token_hex(4)}"
+        if not await _git_ref_exists(repo_dir, f"refs/heads/{candidate}", env, logs):
+            _log_debug(logs, f"Generated temporary branch '{candidate}'.")
+            return candidate
+        _log_debug(logs, f"Temporary branch '{candidate}' already exists; regenerating.")
+
+
+async def _reset_cached_repo_state(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: Optional[LogSink],
+    default_branch: str,
+    target_branch: Optional[str],
+) -> None:
+    tmp_branch = await _generate_unique_temp_branch(repo_dir, env, logs)
+    _log_debug(logs, f"Switching to orphan temporary branch '{tmp_branch}'.")
+    orphan_result = await run_command(
+        "git",
+        "switch",
+        "--orphan",
+        tmp_branch,
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if orphan_result.returncode != 0:
+        raise RuntimeError("Failed to create temporary orphan branch")
+
+    _log_debug(logs, "Creating empty commit on temporary branch.")
+    commit_result = await run_command(
+        "git",
+        "-c",
+        "user.name=git-webui",
+        "-c",
+        "user.email=git-webui@localhost",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "temporary cleanup branch",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if commit_result.returncode != 0:
+        raise RuntimeError("Failed to create temporary empty commit")
+
+    branches_result = await run_command(
+        "git",
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/heads/",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if branches_result.returncode != 0:
+        raise RuntimeError("Failed to list local branches")
+    branches = [line.strip() for line in branches_result.stdout.splitlines() if line.strip()]
+    for branch in branches:
+        if branch == tmp_branch:
+            continue
+        _log_debug(logs, f"Deleting local branch '{branch}'.")
+        delete_result = await run_command(
+            "git",
+            "branch",
+            "-D",
+            branch,
+            cwd=repo_dir,
+            env=env,
+            log=logs,
+        )
+        if delete_result.returncode != 0:
+            raise RuntimeError(f"Failed to delete branch {branch}")
+
+    _log_debug(logs, f"Recreating default branch '{default_branch}' from origin/{default_branch}.")
+    switch_default_result = await run_command(
+        "git",
+        "switch",
+        "-C",
+        default_branch,
+        f"origin/{default_branch}",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if switch_default_result.returncode != 0:
+        raise RuntimeError(f"Failed to reset default branch {default_branch}")
+
+    _log_debug(logs, "Resetting and cleaning working tree.")
+    reset_result = await run_command(
+        "git",
+        "reset",
+        "--hard",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if reset_result.returncode != 0:
+        raise RuntimeError("git reset --hard failed")
+    clean_result = await run_command(
+        "git",
+        "clean",
+        "-fd",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if clean_result.returncode != 0:
+        raise RuntimeError("git clean -fd failed")
+
+    if target_branch:
+        if await _git_ref_exists(repo_dir, f"refs/remotes/origin/{target_branch}", env, logs):
+            _log_debug(logs, f"Switching to target branch '{target_branch}' from origin/{target_branch}.")
+            target_result = await run_command(
+                "git",
+                "switch",
+                "-C",
+                target_branch,
+                f"origin/{target_branch}",
+                cwd=repo_dir,
+                env=env,
+                log=logs,
+            )
+            if target_result.returncode != 0:
+                raise RuntimeError(f"Failed to switch to origin/{target_branch}")
+        else:
+            _log_debug(logs, f"Creating new local branch '{target_branch}' from default branch.")
+            create_target_result = await run_command(
+                "git",
+                "switch",
+                "-c",
+                target_branch,
+                cwd=repo_dir,
+                env=env,
+                log=logs,
+            )
+            if create_target_result.returncode != 0:
+                raise RuntimeError(f"Failed to create local branch {target_branch}")
+
+    _log_debug(logs, f"Deleting temporary branch '{tmp_branch}'.")
+    delete_tmp_result = await run_command(
+        "git",
+        "branch",
+        "-D",
+        tmp_branch,
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if delete_tmp_result.returncode != 0:
+        raise RuntimeError(f"Failed to delete temporary branch {tmp_branch}")
 
 
 def _parse_port(value: object) -> int:
@@ -352,18 +551,20 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
             else:
                 _log_debug(logs, "No SSH key selected; using default SSH configuration.")
 
+            repo_prepared = False
+            default_branch = ""
             if repo_dir.exists():
                 if not (repo_dir / ".git").exists():
                     raise RuntimeError(f"Existing repository path is not a git repo: {repo_dir}")
                 logs.append(_timestamped(f"Using existing repository at {repo_dir}"))
-                _log_debug(logs, "Fetching latest changes from origin.")
+                _log_debug(logs, "Fetching latest changes from all remotes.")
                 fetch_result = await run_command(
                     "git",
                     "-c",
                     "core.hooksPath=" + DEVNULL,
                     "fetch",
                     "--prune",
-                    "origin",
+                    "--all",
                     cwd=repo_dir,
                     env=env,
                     log=logs,
@@ -371,6 +572,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if fetch_result.returncode != 0:
                     raise RuntimeError("git fetch failed")
                 _log_debug(logs, "git fetch completed.")
+                default_branch = await _resolve_default_branch(repo_dir, env, logs)
+                if branch_mode not in {"from_commit", "orphan"} and not branch:
+                    branch = default_branch
+                target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
+                _log_debug(logs, "Resetting cached repository state to match remote default branch.")
+                await _reset_cached_repo_state(repo_dir, env, logs, default_branch, target_branch)
+                repo_prepared = True
             else:
                 logs.append(_timestamped(f"Cloning repository {repository_url}"))
                 _log_debug(logs, "Starting git clone.")
@@ -419,24 +627,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 _log_debug(logs, "git user.email configured.")
 
             if branch_mode not in {"from_commit", "orphan"} and not branch:
-                _log_debug(logs, "No branch specified; resolving default branch from origin/HEAD.")
-                default_branch_result = await run_command(
-                    "git",
-                    "symbolic-ref",
-                    "--quiet",
-                    "--short",
-                    "refs/remotes/origin/HEAD",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if default_branch_result.returncode == 0:
-                    resolved = default_branch_result.stdout.strip()
-                    if resolved.startswith("origin/"):
-                        resolved = resolved.split("/", 1)[1]
-                    if resolved:
-                        branch = resolved
-                        _log_debug(logs, f"Resolved default branch '{branch}'.")
+                default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
+                branch = default_branch
 
             if branch_mode == "from_commit":
                 logs.append(_timestamped(f"Creating branch {new_branch} from commit {base_commit}."))
@@ -496,7 +688,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     env=env,
                     log=logs,
                 )
-            elif branch:
+            elif branch and not repo_prepared:
                 _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_command(
                     "git",
@@ -539,7 +731,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     )
                     if pull_result.returncode != 0:
                         raise RuntimeError("git pull failed")
-            else:
+            elif not repo_prepared:
                 _log_debug(logs, "No branch specified; using default branch.")
                 await run_command(
                     "git",
