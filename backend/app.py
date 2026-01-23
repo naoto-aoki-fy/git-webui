@@ -30,7 +30,7 @@ REPO_ROOT.mkdir(parents=True, exist_ok=True)
 
 def _load_config() -> Dict[str, object]:
     if not CONFIG_PATH.exists():
-        return {"ssh_keys": [], "git_users": [], "server": {}}
+        return {"ssh_keys": [], "git_users": [], "repo_git_users": [], "server": {}}
 
     with CONFIG_PATH.open("rb") as config_file:
         try:
@@ -40,15 +40,23 @@ def _load_config() -> Dict[str, object]:
 
     ssh_keys = data.get("ssh_keys", [])
     git_users = data.get("git_users", [])
+    repo_git_users = data.get("repo_git_users", [])
     server = data.get("server", {})
-    if not isinstance(ssh_keys, list) or not isinstance(git_users, list):
-        raise RuntimeError("Configuration file must define 'ssh_keys' and 'git_users' as lists")
+    if not isinstance(ssh_keys, list) or not isinstance(git_users, list) or not isinstance(repo_git_users, list):
+        raise RuntimeError(
+            "Configuration file must define 'ssh_keys', 'git_users', and 'repo_git_users' as lists"
+        )
     if server is None:
         server = {}
     if not isinstance(server, dict):
         raise RuntimeError("Configuration file 'server' must be a table if provided")
 
-    return {"ssh_keys": ssh_keys, "git_users": git_users, "server": server}
+    return {
+        "ssh_keys": ssh_keys,
+        "git_users": git_users,
+        "repo_git_users": repo_git_users,
+        "server": server,
+    }
 
 
 APP_CONFIG = _load_config()
@@ -457,6 +465,47 @@ def _display_label(entry: Dict[str, str], fallback: str) -> str:
     return fallback
 
 
+def _normalize_repo_url(repository_url: str) -> str:
+    return repository_url.strip().rstrip("/")
+
+
+def _find_git_user_index(identifier: str) -> Optional[int]:
+    if not identifier:
+        return None
+    for idx, entry in enumerate(APP_CONFIG["git_users"]):
+        label = _display_label(entry, "")
+        name = entry.get("name", "")
+        email = entry.get("email", "")
+        if identifier in {label, name, email}:
+            return idx
+    return None
+
+
+def _resolve_repo_git_user_index(repository_url: str, logs: Optional[LogSink] = None) -> Optional[int]:
+    normalized_repo = _normalize_repo_url(repository_url)
+    for entry in APP_CONFIG.get("repo_git_users", []):
+        repo_entry = entry.get("repository", "")
+        user_identifier = entry.get("git_user", "")
+        if not isinstance(repo_entry, str) or not isinstance(user_identifier, str):
+            continue
+        if not repo_entry.strip() or not user_identifier.strip():
+            continue
+        if _normalize_repo_url(repo_entry) != normalized_repo:
+            continue
+        user_idx = _find_git_user_index(user_identifier.strip())
+        if user_idx is None:
+            if logs is not None:
+                logs.append(
+                    _timestamped(
+                        f"Repository-specific git user '{user_identifier}' not found for {repository_url}."
+                    )
+                )
+            return None
+        _log_debug(logs, f"Resolved repository-specific git user index={user_idx} for {repository_url}.")
+        return user_idx
+    return None
+
+
 def _serialize_config() -> Dict[str, object]:
     ssh_keys = []
     for entry in APP_CONFIG["ssh_keys"]:
@@ -551,6 +600,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         except (ValueError, IndexError):
             logs.append(_timestamped("Invalid Git user selection."))
             return {"form_values": form_values, "success": False}
+    elif repository_url:
+        repo_user_idx = _resolve_repo_git_user_index(repository_url, logs)
+        if repo_user_idx is not None:
+            user_entry = APP_CONFIG["git_users"][repo_user_idx]
+            user_name = user_entry.get("name", "").strip()
+            user_email = user_entry.get("email", "").strip()
+            _log_debug(logs, f"Using repository-configured git user index={repo_user_idx} name='{user_name}'.")
 
     _log_debug(logs, "Validated git user selection.")
     success = False

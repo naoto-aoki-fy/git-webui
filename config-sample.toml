@@ -32,6 +32,14 @@ name = "Taro Yamada"
 email = "taro.yamada@customer.example"
 default = false
 
+[[repo_git_users]]
+repository = "git@github.com:company/example-repo.git"
+git_user = "Work"
+
+[[repo_git_users]]
+repository = "git@github.com:personal/example-repo.git"
+git_user = "Personal"
+
 [server]
 bind = "0.0.0.0"
 port = 8080
