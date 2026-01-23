@@ -205,6 +205,28 @@ async def _reset_cached_repo_state(
     default_branch: str,
     target_branch: Optional[str],
 ) -> None:
+    _log_debug(logs, "Pre-cleaning cached repository state before switching branches.")
+    reset_before_result = await run_command(
+        "git",
+        "reset",
+        "--hard",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if reset_before_result.returncode != 0:
+        raise RuntimeError("git reset --hard failed before orphan switch")
+    clean_before_result = await run_command(
+        "git",
+        "clean",
+        "-fd",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if clean_before_result.returncode != 0:
+        raise RuntimeError("git clean -fd failed before orphan switch")
+
     tmp_branch = await _generate_unique_temp_branch(repo_dir, env, logs)
     _log_debug(logs, f"Switching to orphan temporary branch '{tmp_branch}'.")
     orphan_result = await run_command(
