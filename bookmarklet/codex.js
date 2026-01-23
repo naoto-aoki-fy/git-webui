@@ -67,6 +67,7 @@
       "repository_url=" + encodeURIComponent("git@github.com:" + repo) +
       "&branch=" + encodeURIComponent(branchName) +
       "&branch_mode=default" +
+      "&allow_empty_commit=false" +
       "&patch=" + encodeURIComponent(await gzipBase64(patch));
 
     console.log({ url });
