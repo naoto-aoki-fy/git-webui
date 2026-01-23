@@ -323,6 +323,17 @@
     const sshKeyField = document.getElementById("ssh_key_path");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
+    const isClipboardPasteAvailable =
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.readText === "function";
+    if (!isClipboardPasteAvailable) {
+        [pasteCommitMessageButton, pastePatchButton].forEach((button) => {
+            if (button) {
+                button.classList.add("hidden");
+            }
+        });
+    }
     const copyPatchButton = document.getElementById("copy_patch");
     const patchChatgptLink = document.getElementById("patch_chatgpt_link");
     const logSection = document.getElementById("log_section");
