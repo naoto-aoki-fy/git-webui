@@ -945,21 +945,45 @@ Evaluation requirements:
         }
     };
 
+    const patchCopyPrompt = `Based on the changes described after “---- Changes ----”, propose three English Git commit message candidates.
+
+Output requirements:
+
+* Follow the Conventional Commits format. The title line must always use the \`type(scope): summary\` format (e.g., \`refactor(config): ...\`).
+* Do not output any headings such as \`Subject:\` or \`Body:\`.
+* Each proposal must follow this order: “one-line title” → “blank line” → “body”. The body should be a bulleted list (\`-\`) with approximately 2–5 lines.
+* The three proposals must be differentiated so that their wording and level of detail (short / standard / more detailed) do not overlap.
+* Each proposal must be output in a code block (use a separate code block for each proposal).
+
+Evaluation requirements:
+
+* Immediately after each proposal, include the “Recommended adoption level (High / Medium / Low)” and the “Reason” in English (1–3 sentences).
+* In the reason, consider the following aspects: coverage of the changes, clarity, conformity with Conventional Commits, and future searchability (appropriateness of scope/type).
+
+---- Changes ----`;
+
     const copyPatchToClipboard = async () => {
         if (!patchField) {
             return;
         }
-        patchField.focus();
-        patchField.select();
+        const clipboardText = `${patchCopyPrompt}\n${patchField.value}`;
         let copySucceeded = false;
         try {
+            const temporaryField = document.createElement("textarea");
+            temporaryField.value = clipboardText;
+            temporaryField.setAttribute("readonly", "");
+            temporaryField.style.position = "absolute";
+            temporaryField.style.left = "-9999px";
+            document.body.appendChild(temporaryField);
+            temporaryField.select();
             copySucceeded = document.execCommand("copy");
+            document.body.removeChild(temporaryField);
         } catch (error) {
             console.warn("document.execCommand copy failed", error);
         }
         if (!copySucceeded) {
             try {
-                await navigator.clipboard.writeText(patchField.value);
+                await navigator.clipboard.writeText(clipboardText);
                 copySucceeded = true;
             } catch (error) {
                 console.error("Clipboard copy failed", error);
