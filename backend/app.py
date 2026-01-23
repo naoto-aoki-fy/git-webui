@@ -148,9 +148,37 @@ async def _resolve_default_branch(repo_dir: Path, env: Dict[str, str], logs: Opt
         env=env,
         log=logs,
     )
-    if default_branch_result.returncode != 0:
-        raise RuntimeError("Unable to resolve default branch from origin/HEAD")
-    resolved = default_branch_result.stdout.strip()
+    if default_branch_result.returncode == 0:
+        resolved = default_branch_result.stdout.strip()
+    else:
+        resolved = ""
+
+    if not resolved:
+        _log_debug(logs, "origin/HEAD not available; checking 'git remote show origin'.")
+        remote_show_result = await run_command(
+            "git",
+            "remote",
+            "show",
+            "origin",
+            cwd=repo_dir,
+            env=env,
+            log=logs,
+        )
+        if remote_show_result.returncode == 0:
+            match = re.search(r"HEAD branch:\s*(\S+)", remote_show_result.stdout)
+            if match:
+                resolved = match.group(1).strip()
+
+    if not resolved:
+        _log_debug(logs, "Unable to parse HEAD branch; falling back to common defaults.")
+        for candidate in ("main", "master"):
+            if await _git_ref_exists(repo_dir, f"refs/remotes/origin/{candidate}", env, logs):
+                resolved = candidate
+                break
+
+    if not resolved:
+        raise RuntimeError("Unable to resolve default branch from origin")
+
     if resolved.startswith("origin/"):
         resolved = resolved.split("/", 1)[1]
     if not resolved:
