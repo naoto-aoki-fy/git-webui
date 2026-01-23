@@ -345,7 +345,6 @@
     const BRANCH_STORAGE_KEY = "git-webui.branches";
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
     const DRAFT_STORAGE_KEY = "git-webui.draft";
-    const REPOSITORY_GIT_USER_KEY = "git-webui.repositoryGitUser";
     const MAX_STORED_VALUES = 10;
     let logSocket = null;
     let draftSaveTimeout = null;
@@ -519,50 +518,6 @@
         window.localStorage.setItem(key, JSON.stringify(values));
     };
 
-    const readRepoGitUserMap = () => {
-        try {
-            const raw = window.localStorage.getItem(REPOSITORY_GIT_USER_KEY);
-            if (!raw) {
-                return {};
-            }
-            const parsed = JSON.parse(raw);
-            return parsed && typeof parsed === "object" ? parsed : {};
-        } catch (error) {
-            console.warn("Failed to read repository git user map", error);
-            return {};
-        }
-    };
-
-    const writeRepoGitUserMap = (map) => {
-        window.localStorage.setItem(REPOSITORY_GIT_USER_KEY, JSON.stringify(map));
-    };
-
-    const rememberGitUserForRepository = (repositoryUrl, gitUserValue) => {
-        const repo = repositoryUrl.trim();
-        if (!repo) {
-            return;
-        }
-        const map = readRepoGitUserMap();
-        if (gitUserValue) {
-            map[repo] = gitUserValue;
-        } else if (map[repo]) {
-            delete map[repo];
-        }
-        writeRepoGitUserMap(map);
-    };
-
-    const applyRememberedGitUser = (repositoryUrl) => {
-        const repo = repositoryUrl.trim();
-        if (!repo) {
-            return;
-        }
-        const map = readRepoGitUserMap();
-        if (map[repo]) {
-            gitUserField.value = map[repo];
-            scheduleDraftSave();
-        }
-    };
-
     const addStoredValue = (key, value) => {
         const trimmed = value.trim();
         if (!trimmed) {
@@ -613,7 +568,6 @@
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
         renderStoredOptions(repoValues, repositoryHistoryList, repositorySavedSelect, "Select a saved repository");
         renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
-        rememberGitUserForRepository(repositoryField.value, gitUserField.value);
     };
 
     const readDraft = () => {
@@ -1061,8 +1015,7 @@ Evaluation requirements:
         if (params.has("base_commit")) {
             commitIdField.value = params.get("base_commit") || "";
         }
-        const hasGitUserParam = params.has("git_user");
-        if (hasGitUserParam) {
+        if (params.has("git_user")) {
             gitUserField.value = params.get("git_user") || "";
         }
         if (params.has("commit_message")) {
@@ -1080,9 +1033,6 @@ Evaluation requirements:
             const decodedPatch = await decodeGzipBase64(patchParam);
             patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
-        if (params.has("repository_url") && !hasGitUserParam) {
-            applyRememberedGitUser(repositoryField.value);
-        }
         updatePatchChatgptLink();
         const cleanUrl = `${window.location.pathname}${window.location.hash}`;
         window.history.pushState({}, "", cleanUrl);
@@ -1094,7 +1044,6 @@ Evaluation requirements:
             if (selected) {
                 repositoryField.value = selected;
                 repositoryField.focus();
-                applyRememberedGitUser(selected);
             }
         });
     }
@@ -1106,18 +1055,6 @@ Evaluation requirements:
                 branchField.value = selected;
                 branchField.focus();
             }
-        });
-    }
-
-    if (repositoryField) {
-        repositoryField.addEventListener("change", () => {
-            applyRememberedGitUser(repositoryField.value);
-        });
-    }
-
-    if (gitUserField) {
-        gitUserField.addEventListener("change", () => {
-            rememberGitUserForRepository(repositoryField.value, gitUserField.value);
         });
     }
 
