@@ -471,6 +471,14 @@ def _serialize_config() -> Dict[str, object]:
     for entry in APP_CONFIG["git_users"]:
         name = entry.get("name", "")
         email = entry.get("email", "")
+        default_repos = entry.get("default_repositories", [])
+        if not isinstance(default_repos, list):
+            default_repos = []
+        default_repos = [
+            repo.strip()
+            for repo in default_repos
+            if isinstance(repo, str) and repo.strip()
+        ]
         fallback = " ".join(part for part in [name, f"<{email}>" if email else ""] if part).strip()
         git_users.append(
             {
@@ -478,6 +486,7 @@ def _serialize_config() -> Dict[str, object]:
                 "name": name,
                 "email": email,
                 "default": entry.get("default") is True,
+                "default_repositories": default_repos,
             }
         )
     return {

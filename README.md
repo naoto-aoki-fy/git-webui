@@ -67,6 +67,7 @@ label = "Example User"
 name = "Example User"
 email = "user@example.com"
 default = true
+default_repositories = ["git@github.com:example/repo.git", "https://github.com/example/another-repo"]
 
 [server]
 bind = "0.0.0.0"
@@ -74,7 +75,7 @@ port = 8080
 ```
 
 - `ssh_keys`: the path is used directly with `ssh -i`. The label is shown in the dropdown. Set `default = true` to preselect a key in the UI.
-- `git_users`: the name/email pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI.
+- `git_users`: the name/email pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI. Use `default_repositories` to list repository URLs that should auto-select that user when entered in the form.
 - `server`: optionally set `bind` and `port` for the backend listener (environment variables `GIT_WEBUI_BIND` and `GIT_WEBUI_PORT` take precedence).
 
 If either list is empty the corresponding dropdown shows that no options are available.

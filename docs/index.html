@@ -358,6 +358,7 @@
     const DRAFT_STORAGE_KEY = "git-webui.draft";
     const MAX_STORED_VALUES = 10;
     let logSocket = null;
+    let gitUserConfig = [];
     let draftSaveTimeout = null;
 
     const updateBackendStatus = (state, message) => {
@@ -795,12 +796,71 @@ Evaluation requirements:
         select.appendChild(option);
     };
 
+    const normalizeRepository = (value) => {
+        if (!value) {
+            return "";
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return "";
+        }
+        let normalized = trimmed;
+        if (trimmed.includes("://")) {
+            try {
+                const url = new URL(trimmed);
+                normalized = `${url.hostname}${url.pathname}`;
+            } catch (error) {
+                normalized = trimmed;
+            }
+        } else {
+            const scpMatch = trimmed.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
+            if (scpMatch) {
+                normalized = `${scpMatch[1]}/${scpMatch[2]}`;
+            }
+        }
+        normalized = normalized.replace(/^\/+/, "").replace(/\/+$/, "");
+        normalized = normalized.replace(/\.git$/i, "");
+        return normalized.toLowerCase();
+    };
+
+    const findDefaultGitUserIndexForRepo = (repositoryUrl) => {
+        if (!repositoryUrl) {
+            return null;
+        }
+        const normalizedRepo = normalizeRepository(repositoryUrl);
+        if (!normalizedRepo) {
+            return null;
+        }
+        for (let idx = 0; idx < gitUserConfig.length; idx += 1) {
+            const entry = gitUserConfig[idx];
+            const defaults = Array.isArray(entry.default_repositories) ? entry.default_repositories : [];
+            for (const repoValue of defaults) {
+                if (normalizeRepository(repoValue) === normalizedRepo) {
+                    return idx;
+                }
+            }
+        }
+        return null;
+    };
+
+    const applyDefaultGitUserForRepository = () => {
+        if (!gitUserField || gitUserField.hasAttribute("disabled")) {
+            return;
+        }
+        const repoValue = repositoryField.value;
+        const matchIndex = findDefaultGitUserIndexForRepo(repoValue);
+        if (typeof matchIndex === "number") {
+            gitUserField.value = String(matchIndex);
+        }
+    };
+
     const populateConfig = (payload) => {
         if (!payload) {
             return;
         }
         const sshKeys = Array.isArray(payload.ssh_keys) ? payload.ssh_keys : [];
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
+        gitUserConfig = gitUsers;
         sshKeyField.innerHTML = "";
         if (sshKeys.length === 0) {
             resetSelect(sshKeyField, "(No SSH keys configured)");
@@ -831,6 +891,7 @@ Evaluation requirements:
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
             gitUserField.value = String(defaultGitUserIndex);
         }
+        applyDefaultGitUserForRepository();
     };
 
     const fetchConfig = async () => {
@@ -865,6 +926,10 @@ Evaluation requirements:
     branchModeInputs.forEach((input) => {
         input.addEventListener("change", toggleCommitField);
     });
+    if (repositoryField) {
+        repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
+        repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
+    }
 
     const clearLogs = () => {
         if (logOutput) {
@@ -1045,6 +1110,7 @@ Evaluation requirements:
             patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
         updatePatchChatgptLink();
+        applyDefaultGitUserForRepository();
         const cleanUrl = `${window.location.pathname}${window.location.hash}`;
         window.history.pushState({}, "", cleanUrl);
     };
@@ -1055,6 +1121,7 @@ Evaluation requirements:
             if (selected) {
                 repositoryField.value = selected;
                 repositoryField.focus();
+                applyDefaultGitUserForRepository();
             }
         });
     }
