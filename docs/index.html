@@ -494,7 +494,9 @@
             }
             if (payload.type === "complete") {
                 updateLogStatus(payload.success);
-                clearProcessingFields();
+                if (payload.success) {
+                    clearProcessingFields();
+                }
                 showResultModal(
                     payload.success,
                     payload.success
