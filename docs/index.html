@@ -360,6 +360,7 @@
     let logSocket = null;
     let gitUserConfig = [];
     let draftSaveTimeout = null;
+    let defaultGitUserIndex = null;
 
     const updateBackendStatus = (state, message) => {
         if (!backendStatus) {
@@ -851,6 +852,8 @@ Evaluation requirements:
         const matchIndex = findDefaultGitUserIndexForRepo(repoValue);
         if (typeof matchIndex === "number") {
             gitUserField.value = String(matchIndex);
+        } else if (repoValue && typeof defaultGitUserIndex === "number") {
+            gitUserField.value = String(defaultGitUserIndex);
         }
     };
 
@@ -887,9 +890,11 @@ Evaluation requirements:
         if (typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex]) {
             sshKeyField.value = String(defaultSshIndex);
         }
-        const defaultGitUserIndex = payload.default_git_user_index;
+        defaultGitUserIndex = payload.default_git_user_index;
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
             gitUserField.value = String(defaultGitUserIndex);
+        } else {
+            defaultGitUserIndex = null;
         }
         applyDefaultGitUserForRepository();
     };
