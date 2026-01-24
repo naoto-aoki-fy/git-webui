@@ -59,25 +59,6 @@
         button.secondary:hover {
             background: #2d3748;
         }
-        a.secondary-link {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.5rem 1rem;
-            background: #4a5568;
-            color: #fff;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            text-decoration: none;
-        }
-        a.secondary-link:hover {
-            background: #2d3748;
-        }
-        a.secondary-link.disabled {
-            cursor: not-allowed;
-            opacity: 0.6;
-            pointer-events: none;
-        }
         button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
@@ -276,9 +257,6 @@
                 <button type="button" class="secondary" id="copy_patch">
                     Prompt for generating a commit message
                 </button>
-                <a class="secondary-link" id="patch_chatgpt_link" target="_blank" rel="noopener noreferrer">
-                    Open in ChatGPT
-                </a>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/...\n"></textarea>
         </div>
@@ -335,7 +313,23 @@
         });
     }
     const copyPatchButton = document.getElementById("copy_patch");
-    const patchChatgptLink = document.getElementById("patch_chatgpt_link");
+    const copyPatchBaseLabel = copyPatchButton ? copyPatchButton.textContent.trim() : "";
+    const setCopyPatchButtonCopiedState = (copied) => {
+        if (!copyPatchButton) {
+            return;
+        }
+        copyPatchButton.dataset.copied = copied ? "true" : "false";
+        copyPatchButton.textContent = copied ? `${copyPatchBaseLabel} ✅` : copyPatchBaseLabel;
+    };
+    const clearCopyPatchIndicatorIfPatchChanged = () => {
+        if (!copyPatchButton || copyPatchButton.dataset.copied !== "true") {
+            return;
+        }
+        if (patchField.value !== lastCopiedPatchValue) {
+            setCopyPatchButtonCopiedState(false);
+        }
+    };
+    setCopyPatchButtonCopiedState(false);
     const logSection = document.getElementById("log_section");
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
@@ -361,6 +355,7 @@
     let gitUserConfig = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
+    let lastCopiedPatchValue = "";
 
     const updateBackendStatus = (state, message) => {
         if (!backendStatus) {
@@ -622,33 +617,6 @@
         patch: patchField.value,
     });
 
-    const updatePatchChatgptLink = () => {
-        if (!patchChatgptLink || !patchField) {
-            return;
-        }
-        const patchValue = patchField.value || "";
-        const query = `Based on the changes described after “---- Changes ----”, propose three English Git commit message candidates.
-
-Output requirements:
-
-* Follow the Conventional Commits format. The title line must always use the \`type(scope): summary\` format (e.g., \`refactor(config): ...\`).
-* Do not output any headings such as \`Subject:\` or \`Body:\`.
-* Each proposal must follow this order: “one-line title” → “blank line” → “body”. The body should be a bulleted list (\`-\`) with approximately 2–5 lines.
-* The three proposals must be differentiated so that their wording and level of detail (short / standard / more detailed) do not overlap.
-* Each proposal must be output in a code block (use a separate code block for each proposal).
-
-Evaluation requirements:
-
-* Immediately after each proposal, include the “Recommended adoption level (High / Medium / Low)” and the “Reason” in English (1–3 sentences).
-* In the reason, consider the following aspects: coverage of the changes, clarity, conformity with Conventional Commits, and future searchability (appropriateness of scope/type).
-
----- Changes ----
-` + patchValue;
-        patchChatgptLink.href = "https://chatgpt.com/?q=" + encodeURIComponent(query);
-        patchChatgptLink.classList.toggle("disabled", patchField.hasAttribute("disabled"));
-        patchChatgptLink.setAttribute("aria-disabled", patchField.hasAttribute("disabled"));
-    };
-
     const applyDraftValue = (field, value) => {
         if (!field || value === undefined || value === null) {
             return;
@@ -679,7 +647,7 @@ Evaluation requirements:
         }
         applyDraftValue(sshKeyField, draft.ssh_key_path);
         applyDraftValue(patchField, draft.patch);
-        updatePatchChatgptLink();
+        clearCopyPatchIndicatorIfPatchChanged();
     };
 
     const scheduleDraftSave = () => {
@@ -731,7 +699,11 @@ Evaluation requirements:
         if (copyPatchButton) {
             copyPatchButton.disabled = patchField.hasAttribute("disabled");
         }
-        updatePatchChatgptLink();
+        if (patchField.hasAttribute("disabled")) {
+            setCopyPatchButtonCopiedState(false);
+        } else {
+            clearCopyPatchIndicatorIfPatchChanged();
+        }
     };
 
     const toggleCommitField = () => {
@@ -776,13 +748,13 @@ Evaluation requirements:
             if (copyPatchButton) {
                 copyPatchButton.disabled = true;
             }
+            setCopyPatchButtonCopiedState(false);
         } else {
             gitUserField.removeAttribute("disabled");
             commitMessageField.removeAttribute("disabled");
             allowEmptyCommit.removeAttribute("disabled");
             togglePatchRequired();
         }
-        updatePatchChatgptLink();
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
@@ -976,6 +948,9 @@ Evaluation requirements:
             target.value = clipboardText;
             target.focus();
             scheduleDraftSave();
+            if (target === patchField) {
+                clearCopyPatchIndicatorIfPatchChanged();
+            }
         } catch (error) {
             console.error("Clipboard paste failed", error);
             alert("Unable to read from the clipboard. Please paste manually.");
@@ -1028,7 +1003,11 @@ Evaluation requirements:
         }
         if (!copySucceeded) {
             alert("Unable to copy the patch to the clipboard. Please copy manually.");
+            setCopyPatchButtonCopiedState(false);
+            return;
         }
+        lastCopiedPatchValue = patchField.value;
+        setCopyPatchButtonCopiedState(true);
     };
 
     const bindPasteButton = (button) => {
@@ -1116,7 +1095,7 @@ Evaluation requirements:
             const decodedPatch = await decodeGzipBase64(patchParam);
             patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
-        updatePatchChatgptLink();
+        clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
         const cleanUrl = `${window.location.pathname}${window.location.hash}`;
         window.history.pushState({}, "", cleanUrl);
@@ -1163,13 +1142,12 @@ Evaluation requirements:
     prefillFromQueryParams();
     togglePatchRequired();
     toggleCommitField();
-    updatePatchChatgptLink();
     scheduleDraftSave();
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
     if (patchField) {
-        patchField.addEventListener("input", updatePatchChatgptLink);
+        patchField.addEventListener("input", clearCopyPatchIndicatorIfPatchChanged);
     }
 
     const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
