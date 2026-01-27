@@ -1078,7 +1078,11 @@
             return;
         }
         const prompt = buildPatchPrompt();
-        const url = "https://chatgpt.com/#?q=" + encodeURIComponent(prompt);
+        const isIOS =
+            /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        const urlBase = isIOS ? "chatgpt://chatgpt.com/?prompt=" : "https://chatgpt.com/#?q=";
+        const url = urlBase + encodeURIComponent(prompt);
         openChatGPTButton.href = url;
     };
 
