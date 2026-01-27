@@ -1,6 +1,5 @@
 (async function () {
   const baseUrl = "http://endpoint";
-  const accessToken = JSON.parse(document.getElementById("client-bootstrap").innerHTML).session.accessToken
   const taskId = location.pathname.split("/").filter(Boolean).pop();
 
   // --- helpers: Uint8Array <-> Base64URL ---
@@ -30,27 +29,57 @@
     return encodeURIComponent(b64url);
   }
 
-  try {
-    const res = await fetch(
-      "https://chatgpt.com/backend-api/wham/tasks/" + taskId,
-      {
-        method: "GET",
-        headers: { authorization: "Bearer " + accessToken },
+  function findFirstParentWhere(obj, matcher) {
+    const visited = new WeakSet();
+
+    function dfs(node, path) {
+      if (node === null) return null;
+
+      const t = typeof node;
+      if (t !== "object") return null;
+
+      if (typeof node === "function") return null;
+
+      const anyNode = node;
+
+      if (visited.has(anyNode)) return null;
+      visited.add(anyNode);
+
+      if (matcher(anyNode, path)) {
+        return { parent: anyNode, path };
       }
-    );
 
-    // Convert to text first in case we want details even for non-2xx responses
-    const text = await res.text();
+      if (Array.isArray(anyNode)) {
+        for (let i = 0; i < anyNode.length; i++) {
+          const hit = dfs(anyNode[i], path.concat(i));
+          if (hit) return hit;
+        }
+      } else {
+        for (const [k, v] of Object.entries(anyNode)) {
+          const hit = dfs(v, path.concat(k));
+          if (hit) return hit;
+        }
+      }
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}: ${text}`);
+      return null;
     }
 
-    // Parse if JSON is expected to be returned
-    const data = text ? JSON.parse(text) : null;
+    return dfs(obj, []);
+  }
 
-    console.log("response:", data);
-    // return data;
+  const result = findFirstParentWhere(window, (parent, path) => {
+    if (!Object.prototype.hasOwnProperty.call(parent, "task")) return false;
+    const task = parent.task;
+    return task && task.id == taskId; // keep == for string/number compatibility
+  });
+
+  if (!result) {
+    throw new Error("No matching element found (taskId="+JSON.stringify(taskId)+").");
+  }
+
+  const data = result.parent;
+
+  console.log({ data });
 
     const repo = data.task.task_status_display.environment_label;
     const branchName = data.task.task_status_display.branch_name;
@@ -88,10 +117,5 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-
-  } catch (err) {
-    console.error("fetch error:", err);
-    throw err; // Re-throw if the caller also needs to handle it
-  }
 
 })();
