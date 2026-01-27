@@ -249,9 +249,9 @@
                 <button type="button" class="secondary" id="copy_patch">
                     Prompt for generating a commit message
                 </button>
-                <button type="button" class="secondary" id="open_chatgpt">
+                <a class="secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
                     ChatGPT
-                </button>
+                </a>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/..."></textarea>
         </div>
@@ -1019,6 +1019,9 @@
             if (target === patchField) {
                 clearCopyPatchIndicatorIfPatchChanged();
             }
+            if (target === patchField || target === prMessageField) {
+                updateChatGPTLink();
+            }
         } catch (error) {
             console.error("Clipboard paste failed", error);
             alert("Unable to read from the clipboard. Please paste manually.");
@@ -1070,14 +1073,13 @@
         setCopyPatchButtonCopiedState(true);
     };
 
-    const openChatGPTForCommitMessage = () => {
+    const updateChatGPTLink = () => {
+        if (!openChatGPTButton) {
+            return;
+        }
         const prompt = buildPatchPrompt();
-        const url = `https://chatgpt.com/#?q=${encodeURIComponent(prompt)}`;
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.target = "_blank";
-        anchor.click();
-        anchor.remove();
+        const url = "https://chatgpt.com/#?q=" + encodeURIComponent(prompt);
+        openChatGPTButton.href = url;
     };
 
     const bindPasteButton = (button) => {
@@ -1093,9 +1095,7 @@
     if (copyPatchButton) {
         copyPatchButton.addEventListener("click", copyPatchToClipboard);
     }
-    if (openChatGPTButton) {
-        openChatGPTButton.addEventListener("click", openChatGPTForCommitMessage);
-    }
+    updateChatGPTLink();
     refreshStoredSelections();
 
     const normalizeBase64 = (value) => {
@@ -1219,6 +1219,7 @@
     const savedDraft = readDraft();
     applyDraft(savedDraft);
     prefillFromQueryParams();
+    updateChatGPTLink();
     togglePatchRequired();
     toggleCommitField();
     scheduleDraftSave();
@@ -1227,6 +1228,10 @@
     form.addEventListener("change", scheduleDraftSave);
     if (patchField) {
         patchField.addEventListener("input", clearCopyPatchIndicatorIfPatchChanged);
+        patchField.addEventListener("input", updateChatGPTLink);
+    }
+    if (prMessageField) {
+        prMessageField.addEventListener("input", updateChatGPTLink);
     }
 
     const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
