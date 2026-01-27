@@ -153,6 +153,14 @@ async def _resolve_default_branch(repo_dir: Path, env: Dict[str, str], logs: Opt
     else:
         resolved = ""
 
+    if resolved:
+        candidate = resolved
+        if candidate.startswith("origin/"):
+            candidate = candidate.split("/", 1)[1]
+        if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{candidate}", env, logs):
+            _log_debug(logs, f"origin/HEAD points to missing ref '{resolved}'; falling back.")
+            resolved = ""
+
     if not resolved:
         _log_debug(logs, "origin/HEAD not available; checking 'git remote show origin'.")
         remote_show_result = await run_command(
