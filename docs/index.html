@@ -236,6 +236,10 @@
             </div>
             <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
         </div>
+        <div id="pr_message_group">
+            <label for="pr_message">PR Message</label>
+            <textarea id="pr_message" name="pr_message" placeholder="e.g., Release notes or PR summary"></textarea>
+        </div>
         <div id="allow_empty_group">
             <label>
                 <input type="checkbox" id="allow_empty_commit" name="allow_empty_commit" value="true">
@@ -298,6 +302,7 @@
     const patchGroup = document.getElementById("patch_group");
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
+    const prMessageField = document.getElementById("pr_message");
     const sshKeyField = document.getElementById("ssh_key_path");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
@@ -612,6 +617,7 @@
         base_commit: commitIdField.value,
         git_user: gitUserField.value,
         commit_message: commitMessageField.value,
+        pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
         ssh_key_path: sshKeyField.value,
         patch: patchField.value,
@@ -642,6 +648,7 @@
         applyDraftValue(commitIdField, draft.base_commit);
         applyDraftValue(gitUserField, draft.git_user);
         applyDraftValue(commitMessageField, draft.commit_message);
+        applyDraftValue(prMessageField, draft.pr_message);
         if (typeof draft.allow_empty_commit === "boolean") {
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
@@ -963,7 +970,7 @@
         if (!patchField) {
             return;
         }
-        const clipboardText = `${patchCopyPrompt}\n${patchField.value}`;
+        const clipboardText = patchCopyPrompt + "\n" + prMessageField.value + "\n\n" + patchField.value;
         let copySucceeded = false;
         try {
             const temporaryField = document.createElement("textarea");
@@ -1067,6 +1074,9 @@
         }
         if (params.has("commit_message")) {
             commitMessageField.value = params.get("commit_message") || "";
+        }
+        if (params.has("pr_message")) {
+            prMessageField.value = params.get("pr_message") || "";
         }
         if (params.has("allow_empty_commit")) {
             const allowEmptyValue = (params.get("allow_empty_commit") || "").toLowerCase();
