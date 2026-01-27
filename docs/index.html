@@ -39,7 +39,7 @@
         textarea {
             min-height: 220px;
         }
-        button {
+        .button {
             padding: 0.75rem 1.5rem;
             background: #2b6cb0;
             color: #fff;
@@ -48,18 +48,18 @@
             font-size: 1rem;
             cursor: pointer;
         }
-        button:hover {
+        .button:hover {
             background: #2c5282;
         }
-        button.secondary {
+        .button.secondary {
             background: #4a5568;
             font-size: 0.9rem;
             padding: 0.5rem 1rem;
         }
-        button.secondary:hover {
+        .button.secondary:hover {
             background: #2d3748;
         }
-        button:disabled {
+        .button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
         }
@@ -154,7 +154,7 @@
             display: flex;
             justify-content: center;
         }
-        .modal-actions button {
+        .modal-actions .button {
             min-width: 120px;
         }
     </style>
@@ -169,7 +169,7 @@
                 <label for="repository_url">Repository URL (SSH recommended)</label>
                 <div class="field-group">
                     <input type="text" id="repository_url" name="repository_url" required list="repository_history">
-                    <a class="secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
+                    <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
                 </div>
                 <datalist id="repository_history"></datalist>
                 <label for="repository_saved" class="subtle">Saved repositories</label>
@@ -222,7 +222,7 @@
         <div id="commit_message_group">
             <div class="field-header">
                 <label for="commit_message">Commit Message</label>
-                <button type="button" class="secondary" id="paste_commit_message" data-paste-target="commit_message">
+                <button type="button" class="button secondary" id="paste_commit_message" data-paste-target="commit_message">
                     Paste from clipboard
                 </button>
             </div>
@@ -243,13 +243,13 @@
         <div id="patch_group">
             <div class="field-header">
                 <label for="patch">Patch (applied with git apply --3way -v)</label>
-                <button type="button" class="secondary" id="paste_patch" data-paste-target="patch">
+                <button type="button" class="button secondary" id="paste_patch" data-paste-target="patch">
                     Paste from clipboard
                 </button>
-                <button type="button" class="secondary" id="copy_patch">
+                <button type="button" class="button secondary" id="copy_patch">
                     Prompt for generating a commit message
                 </button>
-                <a class="secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
+                <a class="button secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
                     ChatGPT
                 </a>
             </div>
@@ -266,16 +266,16 @@
             </div>
             <div class="field-group">
                 <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
-                <button type="button" class="secondary" id="backend_apply">Use backend</button>
+                <button type="button" class="button secondary" id="backend_apply">Use backend</button>
             </div>
             <p class="subtle">Set the backend server origin (including port). This value is saved in your browser.</p>
         </div>
-        <button type="button" id="submit_button">Apply Patch &amp; Push</button>
+        <button type="button" class="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
     <section id="log_section" class="logs hidden">
         <div class="field-header">
             <h2 id="log_status">Logs</h2>
-            <button type="button" class="secondary" id="clear_logs">Clear logs</button>
+            <button type="button" class="button secondary" id="clear_logs">Clear logs</button>
         </div>
         <pre id="log_output"></pre>
     </section>
@@ -285,7 +285,7 @@
         <h2 id="result_title">Request Complete</h2>
         <p id="result_message">Your request has finished.</p>
         <div class="modal-actions">
-            <button type="button" id="result_close">Close</button>
+            <button type="button" class="button" id="result_close">Close</button>
         </div>
     </div>
 </div>
