@@ -324,7 +324,7 @@
             return;
         }
         copyPatchButton.dataset.copied = copied ? "true" : "false";
-        copyPatchButton.textContent = copied ? `${copyPatchBaseLabel} ✅` : copyPatchBaseLabel;
+        copyPatchButton.textContent = copied ? copyPatchBaseLabel + " ✅" : copyPatchBaseLabel;
     };
     const clearCopyPatchIndicatorIfPatchChanged = () => {
         if (!copyPatchButton || copyPatchButton.dataset.copied !== "true") {
@@ -546,7 +546,7 @@
 
     const renderStoredOptions = (values, datalist, select, placeholder) => {
         if (datalist) {
-            datalist.innerHTML = values.map((value) => `<option value="${value}"></option>`).join("");
+            datalist.innerHTML = values.map((value) => "<option value=\"" + value + "\"></option>").join("");
         }
         if (select) {
             select.innerHTML = "";
@@ -790,14 +790,14 @@
         if (trimmed.includes("://")) {
             try {
                 const url = new URL(trimmed);
-                normalized = `${url.hostname}${url.pathname}`;
+                normalized = url.hostname + url.pathname;
             } catch (error) {
                 normalized = trimmed;
             }
         } else {
             const scpMatch = trimmed.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
             if (scpMatch) {
-                normalized = `${scpMatch[1]}/${scpMatch[2]}`;
+                normalized = scpMatch[1] + "/" + scpMatch[2];
             }
         }
         normalized = normalized.replace(/^\/+/, "").replace(/\/+$/, "");
@@ -884,7 +884,7 @@
         try {
             const response = await fetch(buildBackendUrl("/api/config"));
             if (!response.ok) {
-                throw new Error(`Config request failed: ${response.status}`);
+                throw new Error("Config request failed: " + response.status);
             }
             const payload = await response.json();
             populateConfig(payload);
@@ -905,7 +905,7 @@
         }
         connectWebSocket();
         fetchConfig();
-        appendLogLine(`[client] Using backend ${backendUrl}`);
+        appendLogLine("[client] Using backend " + backendUrl);
     };
 
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
@@ -1020,7 +1020,7 @@
     const normalizeBase64 = (value) => {
         const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
         const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
-        return `${normalized}${padding}`;
+        return normalized + padding;
     };
 
     const decodeGzipBase64 = async (value) => {
@@ -1092,7 +1092,7 @@
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
-        const cleanUrl = `${window.location.pathname}${window.location.hash}`;
+        const cleanUrl = window.location.pathname + window.location.hash;
         window.history.pushState({}, "", cleanUrl);
     };
 
