@@ -93,9 +93,9 @@
     }
     return false;
   });
-  const pr_message = "# " + pr.pr_title + "\n\n" + pr.pr_message;
+  const prMessage = "# " + pr.pr_title + "\n\n" + pr.pr_message;
   const patch = pr.output_diff.diff;
-  console.log({ repo, branchName, pr_message, patch});
+  console.log({ repo, branchName, prMessage, patch});
 
   const url =
     baseUrl +
@@ -106,7 +106,7 @@
     "&allow_empty_commit=false" +
     "&new_branch=" +
     "&base_commit=" +
-    "&pr_message=" + encodeURIComponent(pr_message) +
+    "&pr_message=" + encodeURIComponent(prMessage) +
     "&patch=" + encodeURIComponent(await gzipBase64(patch));
 
   console.log({ url });
