@@ -1072,7 +1072,7 @@
 
     const openChatGPTForCommitMessage = () => {
         const prompt = buildPatchPrompt();
-        const url = `https://chatgpt.com/?prompt=${encodeURIComponent(prompt)}`;
+        const url = `https://chatgpt.com/#?q=${encodeURIComponent(prompt)}`;
         const anchor = document.createElement("a");
         anchor.href = url;
         anchor.target = "_blank";
