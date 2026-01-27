@@ -169,7 +169,7 @@
                 <label for="repository_url">Repository URL (SSH recommended)</label>
                 <div class="field-group">
                     <input type="text" id="repository_url" name="repository_url" required list="repository_history">
-                    <button type="button" class="secondary hidden" id="open_repository">Open on GitHub</button>
+                    <a class="secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
                 </div>
                 <datalist id="repository_history"></datalist>
                 <label for="repository_saved" class="subtle">Saved repositories</label>
@@ -392,13 +392,13 @@
         const repoInfo = parseGitHubRepository(repositoryField.value);
         if (!repoInfo) {
             openRepositoryButton.classList.add("hidden");
-            openRepositoryButton.removeAttribute("data-url");
+            openRepositoryButton.removeAttribute("href");
             return;
         }
         const branchValue = branchField.value.trim();
         const branchSuffix = branchValue ? "/tree/" + encodeBranchForUrl(branchValue) : "";
         const url = "https://github.com/" + repoInfo.owner + "/" + repoInfo.repo + branchSuffix;
-        openRepositoryButton.dataset.url = url;
+        openRepositoryButton.href = url;
         openRepositoryButton.classList.remove("hidden");
     };
 
@@ -970,10 +970,9 @@
         branchField.addEventListener("change", updateRepositoryLinkButton);
     }
     if (openRepositoryButton) {
-        openRepositoryButton.addEventListener("click", () => {
-            const url = openRepositoryButton.dataset.url;
-            if (url) {
-                window.open(url, "_blank", "noopener");
+        openRepositoryButton.addEventListener("click", (event) => {
+            if (!openRepositoryButton.getAttribute("href")) {
+                event.preventDefault();
             }
         });
     }
