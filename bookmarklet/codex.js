@@ -358,7 +358,7 @@
 
   const url =
     baseUrl +
-    "/?" +
+    "?" +
     "repository_url=" + encodeURIComponent("git@github.com:" + repo) +
     "&branch=" + encodeURIComponent(branchName) +
     "&branch_mode=default" +
