@@ -133,14 +133,14 @@
   
     function formatHunkHeader(oldStart, oldLen, newStart, newLen, section) {
       const fmtRange = (start, len) => {
-        if (len === 1) return `${start}`;
-        return `${start},${len}`;
+        if (len === 1) return "" + start;
+        return "" + start + "," + len;
       };
       // For 0-length hunks, keep ",0" explicitly (common & safe)
-      const oldPart = lenIsZero(oldLen) ? `${oldStart},0` : fmtRange(oldStart, oldLen);
-      const newPart = lenIsZero(newLen) ? `${newStart},0` : fmtRange(newStart, newLen);
-  
-      return `@@ -${oldPart} +${newPart} @@${section}`;
+      const oldPart = lenIsZero(oldLen) ? "" + oldStart + ",0" : fmtRange(oldStart, oldLen);
+      const newPart = lenIsZero(newLen) ? "" + newStart + ",0" : fmtRange(newStart, newLen);
+
+      return "@@ -" + oldPart + " +" + newPart + " @@" + section;
     }
   
     function lenIsZero(n) {
