@@ -391,10 +391,8 @@ def _resolve_server_bind(
     bind_override: Optional[str] = None,
     port_override: Optional[int] = None,
 ) -> tuple[str, int]:
-    env_bind = os.environ.get("GIT_WEBUI_BIND", "").strip()
-    env_port = os.environ.get("GIT_WEBUI_PORT", "").strip()
-    bind = bind_override or env_bind or DEFAULT_BIND
-    port_source = port_override if port_override is not None else env_port or DEFAULT_PORT
+    bind = bind_override or DEFAULT_BIND
+    port_source = port_override if port_override is not None else DEFAULT_PORT
     return bind, _parse_port(port_source)
 
 
