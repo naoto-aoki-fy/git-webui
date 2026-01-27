@@ -83,7 +83,7 @@
 
   const repo = data.task.task_status_display.environment_label;
   const branchName = data.task.task_status_display.branch_name;
-  const outputItems = data.current_diff_task_turn.output_items;
+  const outputItems = data.current_assistant_turn.output_items;
   const pr = outputItems.find((value, index, obj) => {
     if ("type" in value) {
       const type = value.type;
