@@ -113,10 +113,7 @@
       }
     }
   
-    // Preserve original trailing newline behavior:
-    // If original ended with \n, split() produced last empty string.
-    // We'll join with \n and return as-is.
-    return out.join("\n");
+    return out.reduce((acc, line) => acc + line + "\n", "");
   
     // ---- helpers ----
   
