@@ -30,7 +30,7 @@ REPO_ROOT.mkdir(parents=True, exist_ok=True)
 
 def _load_config() -> Dict[str, object]:
     if not CONFIG_PATH.exists():
-        return {"ssh_keys": [], "git_users": [], "server": {}}
+        return {"ssh_keys": [], "git_users": []}
 
     with CONFIG_PATH.open("rb") as config_file:
         try:
@@ -40,15 +40,10 @@ def _load_config() -> Dict[str, object]:
 
     ssh_keys = data.get("ssh_keys", [])
     git_users = data.get("git_users", [])
-    server = data.get("server", {})
     if not isinstance(ssh_keys, list) or not isinstance(git_users, list):
         raise RuntimeError("Configuration file must define 'ssh_keys' and 'git_users' as lists")
-    if server is None:
-        server = {}
-    if not isinstance(server, dict):
-        raise RuntimeError("Configuration file 'server' must be a table if provided")
 
-    return {"ssh_keys": ssh_keys, "git_users": git_users, "server": server}
+    return {"ssh_keys": ssh_keys, "git_users": git_users}
 
 
 APP_CONFIG = _load_config()
@@ -396,11 +391,10 @@ def _resolve_server_bind(
     bind_override: Optional[str] = None,
     port_override: Optional[int] = None,
 ) -> tuple[str, int]:
-    server_config = APP_CONFIG.get("server", {})
     env_bind = os.environ.get("GIT_WEBUI_BIND", "").strip()
     env_port = os.environ.get("GIT_WEBUI_PORT", "").strip()
-    bind = bind_override or env_bind or server_config.get("bind", DEFAULT_BIND)
-    port_source = port_override if port_override is not None else env_port or server_config.get("port", DEFAULT_PORT)
+    bind = bind_override or env_bind or DEFAULT_BIND
+    port_source = port_override if port_override is not None else env_port or DEFAULT_PORT
     return bind, _parse_port(port_source)
 
 
