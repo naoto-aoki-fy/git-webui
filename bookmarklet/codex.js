@@ -74,48 +74,48 @@
   });
 
   if (!result) {
-    throw new Error("No matching element found (taskId="+JSON.stringify(taskId)+").");
+    throw new Error("No matching element found (taskId=" + JSON.stringify(taskId) + ").");
   }
 
   const data = result.parent;
 
   console.log({ data });
 
-    const repo = data.task.task_status_display.environment_label;
-    const branchName = data.task.task_status_display.branch_name;
-    const outputItems = data.current_diff_task_turn.output_items;
-    let patch;
-    for (let oin = 0; oin < outputItems.length; oin++) {
-      patch = data.current_diff_task_turn.output_items[oin].output_diff?.diff;
-    }
-    console.log({ repo, branchName, patch });
+  const repo = data.task.task_status_display.environment_label;
+  const branchName = data.task.task_status_display.branch_name;
+  const outputItems = data.current_diff_task_turn.output_items;
+  let patch;
+  for (let oin = 0; oin < outputItems.length; oin++) {
+    patch = data.current_diff_task_turn.output_items[oin].output_diff?.diff;
+  }
+  console.log({ repo, branchName, patch });
 
-    const url =
-      baseUrl +
-      "/?" +
-      "repository_url=" + encodeURIComponent("git@github.com:" + repo) +
-      "&branch=" + encodeURIComponent(branchName) +
-      "&branch_mode=default" +
-      "&allow_empty_commit=false" +
-      "&patch=" + encodeURIComponent(await gzipBase64(patch));
+  const url =
+    baseUrl +
+    "/?" +
+    "repository_url=" + encodeURIComponent("git@github.com:" + repo) +
+    "&branch=" + encodeURIComponent(branchName) +
+    "&branch_mode=default" +
+    "&allow_empty_commit=false" +
+    "&patch=" + encodeURIComponent(await gzipBase64(patch));
 
-    console.log({ url });
+  console.log({ url });
 
-    const a = document.createElement("a");
-    a.innerHTML = "dummy";
-    a.style.display = "none";
+  const a = document.createElement("a");
+  a.innerHTML = "dummy";
+  a.style.display = "none";
 
-    a.addEventListener(
-      "click",
-      function () {
-        const w = window.open(url, "_blank");
-        return false;
-      },
-      { once: true }
-    );
+  a.addEventListener(
+    "click",
+    function () {
+      const w = window.open(url, "_blank");
+      return false;
+    },
+    { once: true }
+  );
 
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 
 })();
