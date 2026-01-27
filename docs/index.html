@@ -957,22 +957,7 @@
         }
     };
 
-    const patchCopyPrompt = `Based on the changes described after “---- Changes ----”, propose three English Git commit message candidates.
-
-Output requirements:
-
-* Follow the Conventional Commits format. The title line must always use the \`type(scope): summary\` format (e.g., \`refactor(config): ...\`).
-* Do not output any headings such as \`Subject:\` or \`Body:\`.
-* Each proposal must follow this order: “one-line title” → “blank line” → “body”. The body should be a bulleted list (\`-\`) with approximately 2–5 lines.
-* The three proposals must be differentiated so that their wording and level of detail (short / standard / more detailed) do not overlap.
-* Each proposal must be output in a code block (use a separate code block for each proposal).
-
-Evaluation requirements:
-
-* Immediately after each proposal, include the “Recommended adoption level (High / Medium / Low)” and the “Reason” in English (1–3 sentences).
-* In the reason, consider the following aspects: coverage of the changes, clarity, conformity with Conventional Commits, and future searchability (appropriateness of scope/type).
-
----- Changes ----`;
+    const patchCopyPrompt = "Based on the changes described after “---- Changes ----”, propose 2–5 English Git commit message candidates.\n\nOutput requirements:\n\n* Follow the Conventional Commits format, and ensure the title line is in the form `type(scope): summary` (e.g., `refactor(config): ...`).\n* For each candidate, use the order: “one-line title” → “blank line” → “body”. The body should be a bulleted list (`-`) with about 0–5 lines.\n* Differentiate each candidate so that expressions and level of detail (short / standard / more detailed) do not overlap.\n* Output each candidate in a separate code block. Be careful that the code block ends after the body, not at the end of the title line.\n\nEvaluation requirements:\n\n* Immediately after each candidate, always include (in English) a “Recommended adoption level (⭐⭐⭐☆☆)” and a “Reason (English, 1–3 sentences)”.\n* In the reason, include perspectives on coverage of the changes, clarity, conformity to Conventional Commits, and future searchability (appropriateness of scope/type).\n\n---- Changes ----\n\n";
 
     const copyPatchToClipboard = async () => {
         if (!patchField) {
