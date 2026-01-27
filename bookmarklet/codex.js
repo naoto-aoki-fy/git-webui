@@ -67,17 +67,17 @@
     return dfs(obj, []);
   }
 
-  const result = findFirstParentWhere(window, (parent, path) => {
+  const resultFindTask = findFirstParentWhere(window, (parent, path) => {
     if (!Object.prototype.hasOwnProperty.call(parent, "task")) return false;
     const task = parent.task;
     return task && task.id == taskId; // keep == for string/number compatibility
   });
 
-  if (!result) {
+  if (!resultFindTask) {
     throw new Error("No matching element found (taskId=" + JSON.stringify(taskId) + ").");
   }
 
-  const data = result.parent;
+  const data = resultFindTask.parent;
 
   console.log({ data });
 
@@ -94,7 +94,7 @@
     return false;
   });
   const patch = pr.output_diff.diff;
-  console.log({ repo, branchName, patch });
+  console.log({ repo, branchName, pr_message, patch});
 
   const url =
     baseUrl +
@@ -103,6 +103,8 @@
     "&branch=" + encodeURIComponent(branchName) +
     "&branch_mode=default" +
     "&allow_empty_commit=false" +
+    "&new_branch=" +
+    "&base_commit=" +
     "&patch=" + encodeURIComponent(await gzipBase64(patch));
 
   console.log({ url });
