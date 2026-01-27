@@ -236,10 +236,6 @@
             </div>
             <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
         </div>
-        <div id="pr_message_group">
-            <label for="pr_message">PR Message</label>
-            <textarea id="pr_message" name="pr_message" placeholder="e.g., Release notes or PR summary"></textarea>
-        </div>
         <div id="allow_empty_group">
             <label>
                 <input type="checkbox" id="allow_empty_commit" name="allow_empty_commit" value="true">
@@ -263,6 +259,10 @@
                 </button>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/..."></textarea>
+        </div>
+        <div id="pr_message_group">
+            <label for="pr_message">PR Message</label>
+            <textarea id="pr_message" name="pr_message" placeholder="e.g., Release notes or PR summary"></textarea>
         </div>
         <button type="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
@@ -300,6 +300,7 @@
     const commitMessageGroup = document.getElementById("commit_message_group");
     const allowEmptyGroup = document.getElementById("allow_empty_group");
     const patchGroup = document.getElementById("patch_group");
+    const prMessageGroup = document.getElementById("pr_message_group");
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
@@ -430,6 +431,9 @@
     const clearProcessingFields = () => {
         if (commitMessageField) {
             commitMessageField.value = "";
+        }
+        if (prMessageField) {
+            prMessageField.value = "";
         }
         if (patchField) {
             patchField.value = "";
@@ -742,11 +746,13 @@
         }
         gitUserGroup.classList.toggle("hidden", hideDetails);
         commitMessageGroup.classList.toggle("hidden", hideDetails);
+        prMessageGroup.classList.toggle("hidden", hideDetails);
         allowEmptyGroup.classList.toggle("hidden", hideDetails);
         patchGroup.classList.toggle("hidden", hideDetails || allowEmptyCommit.checked);
         if (hideDetails) {
             gitUserField.setAttribute("disabled", "");
             commitMessageField.setAttribute("disabled", "");
+            prMessageField.setAttribute("disabled", "");
             allowEmptyCommit.setAttribute("disabled", "");
             patchField.setAttribute("disabled", "");
             if (pastePatchButton) {
@@ -759,6 +765,7 @@
         } else {
             gitUserField.removeAttribute("disabled");
             commitMessageField.removeAttribute("disabled");
+            prMessageField.removeAttribute("disabled");
             allowEmptyCommit.removeAttribute("disabled");
             togglePatchRequired();
         }
