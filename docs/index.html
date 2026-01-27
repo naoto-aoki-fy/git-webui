@@ -103,6 +103,13 @@
             color: #4a5568;
             font-size: 0.9rem;
         }
+        .subtle-link {
+            color: #4a5568;
+            font-size: 0.85rem;
+            text-decoration: underline;
+            display: inline-block;
+            margin-top: 0.4rem;
+        }
         .hidden {
             display: none;
         }
@@ -174,13 +181,13 @@
             <label for="repository_url">Repository URL (SSH recommended)</label>
             <div class="field-group">
                 <input type="text" id="repository_url" name="repository_url" required list="repository_history">
-                <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
             </div>
             <datalist id="repository_history"></datalist>
             <label for="repository_saved" class="subtle">Saved repositories</label>
             <select id="repository_saved">
                 <option value="">Select a saved repository</option>
             </select>
+            <a class="subtle-link hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
         </div>
         <div id="branch_group">
             <label for="branch">Branch (optional: use the current branch)</label>
