@@ -176,20 +176,12 @@
                 <input type="text" id="repository_url" name="repository_url" required list="repository_history">
             </div>
             <datalist id="repository_history"></datalist>
-            <label for="repository_saved" class="subtle">Saved repositories</label>
-            <select id="repository_saved">
-                <option value="">Select a saved repository</option>
-            </select>
             <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
         </div>
         <div id="branch_group">
             <label for="branch">Branch (optional: use the current branch)</label>
             <input type="text" id="branch" name="branch" list="branch_history">
             <datalist id="branch_history"></datalist>
-            <label for="branch_saved" class="subtle">Saved branches</label>
-            <select id="branch_saved">
-                <option value="">Select a saved branch</option>
-            </select>
         </div>
         <div>
             <label>Mode</label>
@@ -354,8 +346,6 @@
     const clearLogsButton = document.getElementById("clear_logs");
     const repositoryHistoryList = document.getElementById("repository_history");
     const branchHistoryList = document.getElementById("branch_history");
-    const repositorySavedSelect = document.getElementById("repository_saved");
-    const branchSavedSelect = document.getElementById("branch_saved");
     const backendUrlField = document.getElementById("backend_url");
     const backendApplyButton = document.getElementById("backend_apply");
     const backendStatus = document.getElementById("backend_status");
@@ -591,22 +581,9 @@
         return nextValues;
     };
 
-    const renderStoredOptions = (values, datalist, select, placeholder) => {
+    const renderStoredOptions = (values, datalist) => {
         if (datalist) {
             datalist.innerHTML = values.map((value) => "<option value=\"" + value + "\"></option>").join("");
-        }
-        if (select) {
-            select.innerHTML = "";
-            const placeholderOption = document.createElement("option");
-            placeholderOption.value = "";
-            placeholderOption.textContent = placeholder;
-            select.appendChild(placeholderOption);
-            values.forEach((value) => {
-                const option = document.createElement("option");
-                option.value = value;
-                option.textContent = value;
-                select.appendChild(option);
-            });
         }
     };
 
@@ -614,22 +591,18 @@
         renderStoredOptions(
             readStoredValues(REPOSITORY_STORAGE_KEY),
             repositoryHistoryList,
-            repositorySavedSelect,
-            "Select a saved repository",
         );
         renderStoredOptions(
             readStoredValues(BRANCH_STORAGE_KEY),
             branchHistoryList,
-            branchSavedSelect,
-            "Select a saved branch",
         );
     };
 
     const persistStoredSelections = () => {
         const repoValues = addStoredValue(REPOSITORY_STORAGE_KEY, repositoryField.value);
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
-        renderStoredOptions(repoValues, repositoryHistoryList, repositorySavedSelect, "Select a saved repository");
-        renderStoredOptions(branchValues, branchHistoryList, branchSavedSelect, "Select a saved branch");
+        renderStoredOptions(repoValues, repositoryHistoryList);
+        renderStoredOptions(branchValues, branchHistoryList);
     };
 
     const readDraft = () => {
@@ -1184,29 +1157,6 @@
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.pushState({}, "", cleanUrl);
     };
-
-    if (repositorySavedSelect) {
-        repositorySavedSelect.addEventListener("change", (event) => {
-            const selected = event.target.value;
-            if (selected) {
-                repositoryField.value = selected;
-                repositoryField.focus();
-                applyDefaultGitUserForRepository();
-                updateRepositoryLinkButton();
-            }
-        });
-    }
-
-    if (branchSavedSelect) {
-        branchSavedSelect.addEventListener("change", (event) => {
-            const selected = event.target.value;
-            if (selected) {
-                branchField.value = selected;
-                branchField.focus();
-                updateRepositoryLinkButton();
-            }
-        });
-    }
 
     if (backendApplyButton) {
         backendApplyButton.addEventListener("click", applyBackend);
