@@ -164,17 +164,6 @@
     <h1>git apply --3way Web UI</h1>
     <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
     <form method="post" action="/" id="apply_form" novalidate>
-        <div>
-            <div class="field-header">
-                <label for="backend_url">Backend URL</label>
-                <span id="backend_status" class="status-pill">disconnected</span>
-            </div>
-            <div class="field-group">
-                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
-                <button type="button" class="secondary" id="backend_apply">Use backend</button>
-            </div>
-            <p class="subtle">Set the backend server origin (including port). This value is saved in your browser.</p>
-        </div>
         <div class="field-group">
             <div>
                 <label for="repository_url">Repository URL (SSH recommended)</label>
@@ -269,6 +258,17 @@
         <div id="pr_message_group">
             <label for="pr_message">PR Message</label>
             <textarea id="pr_message" name="pr_message" placeholder="e.g., Release notes or PR summary"></textarea>
+        </div>
+        <div>
+            <div class="field-header">
+                <label for="backend_url">Backend URL</label>
+                <span id="backend_status" class="status-pill">disconnected</span>
+            </div>
+            <div class="field-group">
+                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
+                <button type="button" class="secondary" id="backend_apply">Use backend</button>
+            </div>
+            <p class="subtle">Set the backend server origin (including port). This value is saved in your browser.</p>
         </div>
         <button type="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
