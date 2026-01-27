@@ -84,10 +84,16 @@
   const repo = data.task.task_status_display.environment_label;
   const branchName = data.task.task_status_display.branch_name;
   const outputItems = data.current_diff_task_turn.output_items;
-  let patch;
-  for (let oin = 0; oin < outputItems.length; oin++) {
-    patch = data.current_diff_task_turn.output_items[oin].output_diff?.diff;
-  }
+  const pr = outputItems.find((value, index, obj) => {
+    if ("type" in value) {
+      const type = value.type;
+      if (type == "pr") {
+        return true;
+      }
+    }
+    return false;
+  });
+  const patch = pr.output_diff.diff;
   console.log({ repo, branchName, patch });
 
   const url =
