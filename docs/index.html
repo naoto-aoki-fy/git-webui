@@ -178,7 +178,10 @@
         <div class="field-group">
             <div>
                 <label for="repository_url">Repository URL (SSH recommended)</label>
-                <input type="text" id="repository_url" name="repository_url" required list="repository_history">
+                <div class="field-group">
+                    <input type="text" id="repository_url" name="repository_url" required list="repository_history">
+                    <button type="button" class="secondary hidden" id="open_repository">Open on GitHub</button>
+                </div>
                 <datalist id="repository_history"></datalist>
                 <label for="repository_saved" class="subtle">Saved repositories</label>
                 <select id="repository_saved">
@@ -308,6 +311,7 @@
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
     const sshKeyField = document.getElementById("ssh_key_path");
+    const openRepositoryButton = document.getElementById("open_repository");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
     const openChatGPTButton = document.getElementById("open_chatgpt");
@@ -366,6 +370,37 @@
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
+
+    const parseGitHubRepository = (value) => {
+        if (!value || typeof value !== "string") {
+            return null;
+        }
+        const trimmed = value.trim();
+        const match = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
+        if (!match) {
+            return null;
+        }
+        return { owner: match[1], repo: match[2] };
+    };
+
+    const encodeBranchForUrl = (branch) => encodeURIComponent(branch).replace(/%2F/g, "/");
+
+    const updateRepositoryLinkButton = () => {
+        if (!openRepositoryButton) {
+            return;
+        }
+        const repoInfo = parseGitHubRepository(repositoryField.value);
+        if (!repoInfo) {
+            openRepositoryButton.classList.add("hidden");
+            openRepositoryButton.removeAttribute("data-url");
+            return;
+        }
+        const branchValue = branchField.value.trim();
+        const branchSuffix = branchValue ? "/tree/" + encodeBranchForUrl(branchValue) : "";
+        const url = "https://github.com/" + repoInfo.owner + "/" + repoInfo.repo + branchSuffix;
+        openRepositoryButton.dataset.url = url;
+        openRepositoryButton.classList.remove("hidden");
+    };
 
     const updateBackendStatus = (state, message) => {
         if (!backendStatus) {
@@ -663,6 +698,7 @@
         applyDraftValue(sshKeyField, draft.ssh_key_path);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
+        updateRepositoryLinkButton();
     };
 
     const scheduleDraftSave = () => {
@@ -926,6 +962,20 @@
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
+        repositoryField.addEventListener("input", updateRepositoryLinkButton);
+        repositoryField.addEventListener("change", updateRepositoryLinkButton);
+    }
+    if (branchField) {
+        branchField.addEventListener("input", updateRepositoryLinkButton);
+        branchField.addEventListener("change", updateRepositoryLinkButton);
+    }
+    if (openRepositoryButton) {
+        openRepositoryButton.addEventListener("click", () => {
+            const url = openRepositoryButton.dataset.url;
+            if (url) {
+                window.open(url, "_blank", "noopener");
+            }
+        });
     }
 
     const clearLogs = () => {
@@ -1123,6 +1173,7 @@
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
+        updateRepositoryLinkButton();
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.pushState({}, "", cleanUrl);
     };
@@ -1134,6 +1185,7 @@
                 repositoryField.value = selected;
                 repositoryField.focus();
                 applyDefaultGitUserForRepository();
+                updateRepositoryLinkButton();
             }
         });
     }
@@ -1144,6 +1196,7 @@
             if (selected) {
                 branchField.value = selected;
                 branchField.focus();
+                updateRepositoryLinkButton();
             }
         });
     }
