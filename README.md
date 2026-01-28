@@ -54,7 +54,7 @@ Then open `http://localhost:8000` in your browser and set the backend URL (for e
 
 ## Configuration
 
-The application reads `config.toml` (or the path specified via the `GIT_WEBUI_CONFIG` environment variable) on startup. The file should define two array tables:
+The application reads `config.toml` (or the path specified via the `--config` CLI option) on startup. The file should define two array tables:
 
 ```toml
 [[ssh_keys]]
@@ -78,7 +78,8 @@ If either list is empty the corresponding dropdown shows that no options are ava
 ## Notes
 
 - Repositories are cloned into a persistent workspace (default: `./repos`) and reused for subsequent requests; before applying new patches the app pulls the latest changes from the remote.
-- Set `GIT_WEBUI_REPO_ROOT` to override the repository workspace location.
+- Use `--repo-root` to override the repository workspace location.
+- Use `--keep-temp` to preserve temporary workspaces for debugging.
 - Logs include timestamps (UTC) for each command and their outputs, helping identify at which step a failure occurred.
 - The web UI does not persist any sensitive data such as SSH keys or patches, but it does store recently used repository/branch values and the backend URL in browser local storage.
 

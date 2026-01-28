@@ -18,25 +18,27 @@ import traceback
 
 from aiohttp import web
 
-CONFIG_PATH = Path(os.environ.get("GIT_WEBUI_CONFIG", "config.toml"))
+DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
-KEEP_TEMP = os.environ.get("GIT_WEBUI_KEEP_TEMP", "").lower() in {"1", "true", "yes", "on"}
-REPO_ROOT = Path(os.environ.get("GIT_WEBUI_REPO_ROOT", "repos")).expanduser()
+KEEP_TEMP = False
+DEFAULT_REPO_ROOT = Path("repos")
+REPO_ROOT = DEFAULT_REPO_ROOT.expanduser()
 REPO_ROOT.mkdir(parents=True, exist_ok=True)
+CONFIG_PATH = DEFAULT_CONFIG_PATH
 
-def _load_config() -> Dict[str, object]:
-    if not CONFIG_PATH.exists():
+def _load_config(config_path: Path) -> Dict[str, object]:
+    if not config_path.exists():
         return {"ssh_keys": [], "git_users": []}
 
-    with CONFIG_PATH.open("rb") as config_file:
+    with config_path.open("rb") as config_file:
         try:
             data = tomllib.load(config_file)
         except tomllib.TOMLDecodeError as exc:  # noqa: BLE001
-            raise RuntimeError(f"Failed to parse configuration file {CONFIG_PATH}: {exc}") from exc
+            raise RuntimeError(f"Failed to parse configuration file {config_path}: {exc}") from exc
 
     ssh_keys = data.get("ssh_keys", [])
     git_users = data.get("git_users", [])
@@ -46,7 +48,7 @@ def _load_config() -> Dict[str, object]:
     return {"ssh_keys": ssh_keys, "git_users": git_users}
 
 
-APP_CONFIG = _load_config()
+APP_CONFIG = {"ssh_keys": [], "git_users": []}
 
 
 @dataclass
@@ -408,6 +410,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--bind", help="Bind address for the backend server.")
     parser.add_argument("--port", type=_parse_port_argument, help="Port number for the backend server.")
     parser.add_argument(
+        "--config",
+        help="Path to the config.toml file.",
+        default=str(DEFAULT_CONFIG_PATH),
+    )
+    parser.add_argument(
+        "--repo-root",
+        help="Path to the repository workspace root.",
+        default=str(DEFAULT_REPO_ROOT),
+    )
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help="Keep temporary workspaces for debugging.",
+        default=False,
+    )
+    parser.add_argument(
         "--serve-frontend",
         dest="serve_frontend",
         action="store_true",
@@ -421,6 +439,15 @@ def _parse_args() -> argparse.Namespace:
         help="Disable serving the frontend UI from the backend server.",
     )
     return parser.parse_args()
+
+
+def _configure_runtime(config_path: str, repo_root: str, keep_temp: bool) -> None:
+    global CONFIG_PATH, REPO_ROOT, KEEP_TEMP, APP_CONFIG
+    CONFIG_PATH = Path(config_path)
+    REPO_ROOT = Path(repo_root).expanduser()
+    REPO_ROOT.mkdir(parents=True, exist_ok=True)
+    KEEP_TEMP = keep_temp
+    APP_CONFIG = _load_config(CONFIG_PATH)
 
 
 def _frontend_root() -> Path:
@@ -1005,6 +1032,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
 
 if __name__ == "__main__":
     args = _parse_args()
+    _configure_runtime(args.config, args.repo_root, args.keep_temp)
     bind, port = _resolve_server_bind(bind_override=args.bind, port_override=args.port)
     web.run_app(
         create_app(serve_frontend=args.serve_frontend),
