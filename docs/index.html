@@ -263,8 +263,11 @@
                 <span id="backend_status" class="status-pill">disconnected</span>
             </div>
             <div class="field-group">
+                <button type="button" class="button secondary" id="backend_apply">Connect</button>
+                <button type="button" class="button secondary" id="backend_disconnect">Disconnect</button>
+            </div>
+            <div class="field-group">
                 <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
-                <button type="button" class="button secondary" id="backend_apply">Use backend</button>
             </div>
             <p class="subtle">Set the backend server origin (including port). This value is saved in your browser.</p>
         </div>
@@ -350,6 +353,7 @@
     const branchHistoryList = document.getElementById("branch_history");
     const backendUrlField = document.getElementById("backend_url");
     const backendApplyButton = document.getElementById("backend_apply");
+    const backendDisconnectButton = document.getElementById("backend_disconnect");
     const backendStatus = document.getElementById("backend_status");
     const resultModal = document.getElementById("result_modal");
     const resultTitle = document.getElementById("result_title");
@@ -366,6 +370,7 @@
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
+    let manualDisconnect = false;
 
     const parseGitHubRepository = (value) => {
         if (!value || typeof value !== "string") {
@@ -518,6 +523,11 @@
             updateBackendStatus("connected", "connected");
         });
         logSocket.addEventListener("close", () => {
+            if (manualDisconnect) {
+                updateBackendStatus("", "disconnected");
+                manualDisconnect = false;
+                return;
+            }
             updateBackendStatus("error", "disconnected");
         });
         logSocket.addEventListener("error", () => {
@@ -942,13 +952,27 @@
 
     const applyBackend = () => {
         const backendUrl = setBackendUrl(backendUrlField.value);
+        manualDisconnect = false;
         updateBackendStatus("", "connecting");
         if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+            manualDisconnect = true;
             logSocket.close();
         }
         connectWebSocket();
         fetchConfig();
         appendLogLine("[client] Using backend " + backendUrl);
+    };
+
+    const disconnectBackend = () => {
+        manualDisconnect = true;
+        if (logSocket && logSocket.readyState !== WebSocket.CLOSED) {
+            logSocket.close();
+        } else {
+            manualDisconnect = false;
+        }
+        logSocket = null;
+        updateBackendStatus("", "disconnected");
+        appendLogLine("[client] Disconnected from backend");
     };
 
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
@@ -1187,6 +1211,9 @@
 
     if (backendApplyButton) {
         backendApplyButton.addEventListener("click", applyBackend);
+    }
+    if (backendDisconnectButton) {
+        backendDisconnectButton.addEventListener("click", disconnectBackend);
     }
 
     if (resultCloseButton) {
