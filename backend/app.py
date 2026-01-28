@@ -409,8 +409,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=_parse_port_argument, help="Port number for the backend server.")
     parser.add_argument(
         "--serve-frontend",
+        dest="serve_frontend",
         action="store_true",
-        help="Serve the frontend UI from the backend server.",
+        default=True,
+        help="Serve the frontend UI from the backend server (default).",
+    )
+    parser.add_argument(
+        "--no-serve-frontend",
+        dest="serve_frontend",
+        action="store_false",
+        help="Disable serving the frontend UI from the backend server.",
     )
     return parser.parse_args()
 
@@ -976,7 +984,7 @@ async def close_websockets(app: web.Application) -> None:
     await asyncio.gather(*(socket.close() for socket in list(sockets)))
 
 
-def create_app(serve_frontend: bool = False) -> web.Application:
+def create_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application()
     app["websockets"] = set()
     app.on_shutdown.append(close_websockets)
