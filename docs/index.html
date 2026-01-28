@@ -336,6 +336,15 @@
         copyPatchButton.dataset.copied = copied ? "true" : "false";
         copyPatchButton.textContent = copied ? copyPatchBaseLabel + " ✅" : copyPatchBaseLabel;
     };
+    const toggleCommitMessageHelpers = () => {
+        const shouldHide = allowEmptyCommit.checked;
+        if (copyPatchButton) {
+            copyPatchButton.classList.toggle("hidden", shouldHide);
+        }
+        if (openChatGPTButton) {
+            openChatGPTButton.classList.toggle("hidden", shouldHide);
+        }
+    };
     const clearCopyPatchIndicatorIfPatchChanged = () => {
         if (!copyPatchButton || copyPatchButton.dataset.copied !== "true") {
             return;
@@ -761,6 +770,7 @@
         } else {
             clearCopyPatchIndicatorIfPatchChanged();
         }
+        toggleCommitMessageHelpers();
     };
 
     const toggleCommitField = () => {
