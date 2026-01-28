@@ -87,8 +87,6 @@ If either list is empty the corresponding dropdown shows that no options are ava
 The frontend reads URL query parameters on load and uses them to prefill form inputs. This is handy for sharing a prepared link or for automation. When any query parameters are present, the UI ignores previously stored draft values for unspecified fields and falls back to the default form values instead. After applying the values, the UI removes the query string from the browser address bar.
 
 Supported parameters:
-
-- `backend_url`
 - `repository_url`
 - `branch`
 - `branch_mode` (`default`, `from_commit`, or `orphan`)
@@ -108,3 +106,5 @@ http://localhost:8000/?repository_url=git@github.com:example/repo.git&branch=mai
 ```
 
 The `bookmarklet/codex.js` helper can generate a prefilled Codex coding results page by opening the web UI with the relevant query parameters already set.
+
+Note: the backend URL is not controlled via query parameters. The UI always pre-fills the backend URL from the saved browser value when available, otherwise it falls back to the default origin.

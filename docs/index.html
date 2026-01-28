@@ -486,9 +486,7 @@
     const hasQueryParams = [...queryParams.keys()].length > 0;
 
     const getBackendUrl = () => {
-        const stored = hasQueryParams && !queryParams.has("backend_url")
-            ? null
-            : window.localStorage.getItem(BACKEND_STORAGE_KEY);
+        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
         const fallback = window.location.origin;
         return normalizeBackendUrl(stored || fallback);
     };
@@ -1117,9 +1115,6 @@
             return;
         }
         applyDraft(defaultFormState);
-        if (queryParams.has("backend_url") && backendUrlField) {
-            backendUrlField.value = queryParams.get("backend_url") || "";
-        }
         if (queryParams.has("repository_url")) {
             repositoryField.value = queryParams.get("repository_url") || "";
         }
