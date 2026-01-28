@@ -508,7 +508,17 @@
         return trimmed.replace(/\/+$/, "");
     };
 
-    const queryParams = new URLSearchParams(window.location.search);
+    const getQueryParams = () => {
+        const searchParams = new URLSearchParams(window.location.search);
+        if ([...searchParams.keys()].length > 0) {
+            return { params: searchParams, source: "search" };
+        }
+        if (window.location.hash.startsWith("#?")) {
+            return { params: new URLSearchParams(window.location.hash.slice(2)), source: "hash" };
+        }
+        return { params: searchParams, source: "none" };
+    };
+    const { params: queryParams, source: querySource } = getQueryParams();
     const hasQueryParams = [...queryParams.keys()].length > 0;
 
     const getBackendUrl = () => {
@@ -1225,7 +1235,8 @@
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
         updateRepositoryLinkButton();
-        const cleanUrl = window.location.pathname + window.location.hash;
+        const cleanHash = querySource === "hash" ? "" : window.location.hash;
+        const cleanUrl = window.location.pathname + cleanHash;
         window.history.pushState({}, "", cleanUrl);
     };
 
