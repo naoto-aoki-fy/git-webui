@@ -482,8 +482,13 @@
         return trimmed.replace(/\/+$/, "");
     };
 
+    const queryParams = new URLSearchParams(window.location.search);
+    const hasQueryParams = [...queryParams.keys()].length > 0;
+
     const getBackendUrl = () => {
-        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
+        const stored = hasQueryParams && !queryParams.has("backend_url")
+            ? null
+            : window.localStorage.getItem(BACKEND_STORAGE_KEY);
         const fallback = window.location.origin;
         return normalizeBackendUrl(stored || fallback);
     };
@@ -642,6 +647,8 @@
         ssh_key_path: sshKeyField.value,
         patch: patchField.value,
     });
+
+    const defaultFormState = collectDraft();
 
     const applyDraftValue = (field, value) => {
         if (!field || value === undefined || value === null) {
@@ -1105,49 +1112,49 @@
     };
 
     const prefillFromQueryParams = async () => {
-        const params = new URLSearchParams(window.location.search);
-        if ([...params.keys()].length === 0) {
+        if (!hasQueryParams) {
             return;
         }
-        if (params.has("backend_url") && backendUrlField) {
-            backendUrlField.value = params.get("backend_url") || "";
+        applyDraft(defaultFormState);
+        if (queryParams.has("backend_url") && backendUrlField) {
+            backendUrlField.value = queryParams.get("backend_url") || "";
         }
-        if (params.has("repository_url")) {
-            repositoryField.value = params.get("repository_url") || "";
+        if (queryParams.has("repository_url")) {
+            repositoryField.value = queryParams.get("repository_url") || "";
         }
-        if (params.has("branch")) {
-            branchField.value = params.get("branch") || "";
+        if (queryParams.has("branch")) {
+            branchField.value = queryParams.get("branch") || "";
         }
-        if (params.has("branch_mode")) {
-            const mode = params.get("branch_mode") || "";
+        if (queryParams.has("branch_mode")) {
+            const mode = queryParams.get("branch_mode") || "";
             branchModeInputs.forEach((input) => {
                 input.checked = input.value === mode;
             });
         }
-        if (params.has("new_branch")) {
-            newBranchField.value = params.get("new_branch") || "";
+        if (queryParams.has("new_branch")) {
+            newBranchField.value = queryParams.get("new_branch") || "";
         }
-        if (params.has("base_commit")) {
-            commitIdField.value = params.get("base_commit") || "";
+        if (queryParams.has("base_commit")) {
+            commitIdField.value = queryParams.get("base_commit") || "";
         }
-        if (params.has("git_user")) {
-            gitUserField.value = params.get("git_user") || "";
+        if (queryParams.has("git_user")) {
+            gitUserField.value = queryParams.get("git_user") || "";
         }
-        if (params.has("commit_message")) {
-            commitMessageField.value = params.get("commit_message") || "";
+        if (queryParams.has("commit_message")) {
+            commitMessageField.value = queryParams.get("commit_message") || "";
         }
-        if (params.has("pr_message")) {
-            prMessageField.value = params.get("pr_message") || "";
+        if (queryParams.has("pr_message")) {
+            prMessageField.value = queryParams.get("pr_message") || "";
         }
-        if (params.has("allow_empty_commit")) {
-            const allowEmptyValue = (params.get("allow_empty_commit") || "").toLowerCase();
+        if (queryParams.has("allow_empty_commit")) {
+            const allowEmptyValue = (queryParams.get("allow_empty_commit") || "").toLowerCase();
             allowEmptyCommit.checked = ["true", "1", "yes", "on"].includes(allowEmptyValue);
         }
-        if (params.has("ssh_key_path")) {
-            sshKeyField.value = params.get("ssh_key_path") || "";
+        if (queryParams.has("ssh_key_path")) {
+            sshKeyField.value = queryParams.get("ssh_key_path") || "";
         }
-        if (params.has("patch")) {
-            const patchParam = params.get("patch") || "";
+        if (queryParams.has("patch")) {
+            const patchParam = queryParams.get("patch") || "";
             const decodedPatch = await decodeGzipBase64(patchParam);
             patchField.value = decodedPatch === null ? patchParam : decodedPatch;
         }
@@ -1174,7 +1181,9 @@
     }
 
     const savedDraft = readDraft();
-    applyDraft(savedDraft);
+    if (!hasQueryParams) {
+        applyDraft(savedDraft);
+    }
     prefillFromQueryParams();
     updateChatGPTLink();
     togglePatchRequired();

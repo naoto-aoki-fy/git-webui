@@ -84,7 +84,7 @@ If either list is empty the corresponding dropdown shows that no options are ava
 
 ## Prefilling the UI via URL query parameters
 
-The frontend reads URL query parameters on load and uses them to prefill form inputs. This is handy for sharing a prepared link or for automation. After applying the values, the UI removes the query string from the browser address bar.
+The frontend reads URL query parameters on load and uses them to prefill form inputs. This is handy for sharing a prepared link or for automation. When any query parameters are present, the UI ignores previously stored draft values for unspecified fields and falls back to the default form values instead. After applying the values, the UI removes the query string from the browser address bar.
 
 Supported parameters:
 
