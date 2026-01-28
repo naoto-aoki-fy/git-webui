@@ -2,33 +2,6 @@
   const baseUrl = "https://naoto-aoki-fy.github.io/git-webui/";
   const taskId = location.pathname.split("/").filter(Boolean).pop();
 
-  // --- helpers: Uint8Array <-> Base64URL ---
-  function bytesToBase64Url(bytes) {
-    let binary = "";
-    const chunkSize = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-    }
-    const base64 = btoa(binary);
-    return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  }
-
-  // --- gzip-compress a string -> URI-safe string ---
-  async function gzipBase64(str) {
-    const input = new TextEncoder().encode(str);
-
-    const cs = new CompressionStream("gzip");
-    const writer = cs.writable.getWriter();
-    writer.write(input);
-    writer.close();
-
-    const compressed = new Uint8Array(await new Response(cs.readable).arrayBuffer());
-
-    const b64url = bytesToBase64Url(compressed);
-    // Per requirements, use encodeURIComponent (often unnecessary for Base64URL, but makes it safer)
-    return encodeURIComponent(b64url);
-  }
-
   function findFirstParentWhere(obj, matcher) {
     const visited = new WeakSet();
 
@@ -366,7 +339,7 @@
     "&new_branch=" +
     "&base_commit=" +
     "&pr_message=" + encodeURIComponent(prMessage) +
-    "&patch=" + encodeURIComponent(await gzipBase64(patch));
+    "&patch=" + encodeURIComponent(patch);
 
   console.log({ url });
 
