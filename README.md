@@ -54,7 +54,7 @@ Then open `http://localhost:8000` in your browser and set the backend URL (for e
 
 ## Configuration
 
-The application reads `config.toml` (or the path specified via the `GIT_WEBUI_CONFIG` environment variable) on startup. The file must define two array tables:
+The application reads `config.toml` (or the path specified via the `GIT_WEBUI_CONFIG` environment variable) on startup. The file should define two array tables:
 
 ```toml
 [[ssh_keys]]
@@ -70,10 +70,10 @@ default = true
 default_repositories = ["git@github.com:example/repo.git", "https://github.com/example/another-repo"]
 ```
 
-- `ssh_keys`: the path is used directly with `ssh -i`. The label is shown in the dropdown. Set `default = true` to preselect a key in the UI.
-- `git_users`: the name/email pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI. Use `default_repositories` to list repository URLs that should auto-select that user when entered in the form.
+- `ssh_keys`: the `path` is used server-side for `ssh -i`, while the UI only receives the `label` and the order index. Set `default = true` to preselect a key in the UI.
+- `git_users`: the `name`/`email` pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI. Use `default_repositories` to list repository URLs that should auto-select that user when entered in the form (matching is case-insensitive and normalizes both HTTPS and SSH URLs by hostname/path, trimming trailing slashes and `.git`).
 
-If either list is empty the corresponding dropdown shows that no options are available.
+If either list is empty the corresponding dropdown shows that no options are available. The frontend receives default indices (`default_ssh_key_index` / `default_git_user_index`) plus the per-entry labels, and it uses the list index values when submitting selections.
 
 ## Notes
 
@@ -96,14 +96,15 @@ Supported parameters:
 - `base_commit`
 - `git_user`
 - `commit_message`
+- `pr_message`
 - `allow_empty_commit` (`true`, `1`, `yes`, or `on`)
-- `ssh_key_path`
-- `patch`
+- `ssh_key_path` (the numeric index from the configured `ssh_keys` list)
+- `patch` (plain text or a URL-safe base64 gzip payload)
 
 Example:
 
 ```
-http://localhost:8000/?repository_url=git@github.com:example/repo.git&branch=main&commit_message=Hello&allow_empty_commit=true
+http://localhost:8000/?repository_url=git@github.com:example/repo.git&branch=main&commit_message=Hello&allow_empty_commit=true&git_user=0&ssh_key_path=0
 ```
 
 The `bookmarklet/codex.js` helper can generate a prefilled Codex coding results page by opening the web UI with the relevant query parameters already set.
