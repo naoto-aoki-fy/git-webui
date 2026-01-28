@@ -235,7 +235,7 @@
         <div id="allow_empty_group">
             <label>
                 <input type="checkbox" id="allow_empty_commit" name="allow_empty_commit" value="true">
-                Allow empty commit
+                Empty Commit
             </label>
         </div>
         <div id="ssh_key_group">
@@ -720,6 +720,7 @@
     };
 
     const togglePatchRequired = () => {
+        const hidePrMessage = allowEmptyCommit.checked;
         patchField.required = !allowEmptyCommit.checked;
         patchGroup.classList.toggle("hidden", allowEmptyCommit.checked);
         if (allowEmptyCommit.checked) {
@@ -728,6 +729,16 @@
         } else {
             patchField.setAttribute("name", "patch");
             patchField.removeAttribute("disabled", "");
+        }
+        if (prMessageGroup) {
+            prMessageGroup.classList.toggle("hidden", hidePrMessage);
+        }
+        if (prMessageField) {
+            if (hidePrMessage) {
+                prMessageField.setAttribute("disabled", "");
+            } else {
+                prMessageField.removeAttribute("disabled");
+            }
         }
         if (pastePatchButton) {
             pastePatchButton.disabled = patchField.hasAttribute("disabled");
