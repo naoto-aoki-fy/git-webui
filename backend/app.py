@@ -18,6 +18,8 @@ import traceback
 
 from aiohttp import web
 
+WS_PATH = "/ws"
+
 DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
@@ -1017,7 +1019,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app.on_shutdown.append(close_websockets)
     app.router.add_route("GET", "/api/health", health_handler)
     app.router.add_route("GET", "/api/config", config_handler)
-    app.router.add_route("GET", "/ws", websocket_handler)
+    app.router.add_route("GET", WS_PATH, websocket_handler)
     if serve_frontend:
         frontend_root = _frontend_root()
         if not frontend_root.exists():
