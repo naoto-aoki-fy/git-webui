@@ -112,6 +112,14 @@
             justify-content: space-between;
             gap: 0.75rem;
         }
+        .field-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-left: auto;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
         .status-pill {
             padding: 0.25rem 0.6rem;
             border-radius: 999px;
@@ -220,15 +228,17 @@
         <div id="commit_message_group">
             <div class="field-header">
                 <label for="commit_message">Commit Message</label>
-                <button type="button" class="button secondary" id="paste_commit_message" data-paste-target="commit_message">
-                    Paste from clipboard
-                </button>
-                <button type="button" class="button secondary" id="copy_patch">
-                    Prompt for generating a commit message
-                </button>
-                <a class="button secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
-                    Generate with ChatGPT
-                </a>
+                <div class="field-header-actions">
+                    <button type="button" class="button secondary" id="paste_commit_message" data-paste-target="commit_message">
+                        Paste from clipboard
+                    </button>
+                    <button type="button" class="button secondary" id="copy_patch">
+                        Prompt for generating a commit message
+                    </button>
+                    <a class="button secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
+                        Generate with ChatGPT
+                    </a>
+                </div>
             </div>
             <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
         </div>
@@ -260,9 +270,11 @@
         <div>
             <div class="field-header">
                 <label for="backend_url">Backend URL</label>
-                <span id="backend_status" class="status-pill">disconnected</span>
-                <button type="button" class="button secondary" id="backend_apply">Connect</button>
-                <button type="button" class="button secondary" id="backend_disconnect">Disconnect</button>
+                <div class="field-header-actions">
+                    <span id="backend_status" class="status-pill">disconnected</span>
+                    <button type="button" class="button secondary" id="backend_apply">Connect</button>
+                    <button type="button" class="button secondary" id="backend_disconnect">Disconnect</button>
+                </div>
             </div>
             <div class="field-group">
                 <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
