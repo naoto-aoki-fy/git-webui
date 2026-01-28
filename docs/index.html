@@ -1235,20 +1235,23 @@
         });
     }
 
-    const savedDraft = readDraft();
-    if (!hasQueryParams) {
-        applyDraft(savedDraft);
-    }
-    prefillFromQueryParams();
-    if (backendUrlField && !backendUrlField.value.trim()) {
-        const storedBackend = window.localStorage.getItem(BACKEND_STORAGE_KEY);
-        const draftBackend = typeof savedDraft.backend_url === "string" ? savedDraft.backend_url : "";
-        backendUrlField.value = normalizeBackendUrl(storedBackend || draftBackend || window.location.origin);
-    }
-    updateChatGPTLink();
-    togglePatchRequired();
-    toggleCommitField();
-    scheduleDraftSave();
+    const initializeForm = async () => {
+        const savedDraft = readDraft();
+        if (!hasQueryParams) {
+            applyDraft(savedDraft);
+        }
+        await prefillFromQueryParams();
+        if (backendUrlField && !backendUrlField.value.trim()) {
+            const storedBackend = window.localStorage.getItem(BACKEND_STORAGE_KEY);
+            const draftBackend = typeof savedDraft.backend_url === "string" ? savedDraft.backend_url : "";
+            backendUrlField.value = normalizeBackendUrl(storedBackend || draftBackend || window.location.origin);
+        }
+        updateChatGPTLink();
+        togglePatchRequired();
+        toggleCommitField();
+        scheduleDraftSave();
+    };
+    initializeForm();
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
