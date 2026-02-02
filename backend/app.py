@@ -453,7 +453,7 @@ def _configure_runtime(config_path: str, repo_root: str, keep_temp: bool) -> Non
 
 
 def _frontend_root() -> Path:
-    return Path(__file__).resolve().parent.parent / "docs"
+    return Path(__file__).resolve().parent.parent / "frontend"
 
 
 def _repo_workspace_for_url(repository_url: str) -> Path:

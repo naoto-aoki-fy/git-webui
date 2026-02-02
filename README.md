@@ -39,7 +39,7 @@ python backend/app.py --serve-frontend
 Serve the static frontend separately (for example):
 
 ```bash
-python -m http.server 8000 -d docs
+python -m http.server 8000 -d frontend
 ```
 
 Then open `http://localhost:8000` in your browser and set the backend URL (for example, `http://localhost:8080`) in the UI so it can connect and load configuration.
