@@ -69,6 +69,14 @@
   --bg: #ffffff;
   --panel-bg: #ffffff;
   --text: #222;
+  --input-bg: #ffffff;
+  --input-border: #ccc;
+}
+
+.theme-root[data-theme='light'] input[type='text'],
+.theme-root[data-theme='light'] textarea,
+.theme-root[data-theme='light'] select {
+  color: #000000;
 }
 
 .page-body {
