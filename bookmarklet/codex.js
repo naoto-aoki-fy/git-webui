@@ -312,8 +312,14 @@
 
   console.log({ data });
 
-  const repo = data.task.task_status_display.environment_label;
-  const branchName = data.task.task_status_display.branch_name;
+  const branchName = data.current_assistant_turn.branch;
+  const repoMapEntries = Object.entries(data.current_assistant_turn.environment.repo_map);
+  if (repoMapEntries.length != 1) {
+    throw Error("repo_map has " + repoMapEntries.length + " entrie(s). (expected: 1)")
+  }
+  const repoInfo = repoMapEntries[0][1];
+  const repo = repoInfo.repository_full_name;
+  
   const outputItems = data.current_assistant_turn.output_items;
   const pr = outputItems.find((value, index, obj) => {
     if ("type" in value) {
