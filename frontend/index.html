@@ -382,7 +382,7 @@
         if (logSocket && logSocket.readyState === WebSocket.OPEN) {
             return;
         }
-        const wsUrl = new URL("/ws", getBackendUrl());
+        const wsUrl = new URL(getBackendUrl());
         wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
         logSocket = new WebSocket(wsUrl.toString());
         logSocket.addEventListener("open", () => {
