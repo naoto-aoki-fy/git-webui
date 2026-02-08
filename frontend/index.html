@@ -1141,7 +1141,7 @@
         const isIOS =
             /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-        const urlBase = isIOS ? "chatgpt://chatgpt.com/?q=" : "https://chatgpt.com/#?model=gpt-5-2-instant&q=";
+        const urlBase = isIOS ? "chatgpt://chatgpt.com/?model=gpt-5-2-instant&q=" : "https://chatgpt.com/#?model=gpt-5-2-instant&q=";
         const url = urlBase + encodeURIComponent(prompt);
         openChatGPTButton.href = url;
     };
