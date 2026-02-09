@@ -395,6 +395,7 @@
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
+    const pendingWebSocketRequests = new Map();
 
     const parseGitHubRepository = (value) => {
         if (!value || typeof value !== "string") {
@@ -541,11 +542,6 @@
         return normalized;
     };
 
-    const buildBackendUrl = (path) => {
-        const base = getBackendUrl();
-        return new URL(path, base).toString();
-    };
-
     const connectWebSocket = () => {
         if (logSocket && logSocket.readyState === WebSocket.OPEN) {
             return;
@@ -557,6 +553,10 @@
             updateBackendStatus("connected", "connected");
         });
         logSocket.addEventListener("close", () => {
+            pendingWebSocketRequests.forEach((handlers) => {
+                handlers.reject(new Error("WebSocket closed before response."));
+            });
+            pendingWebSocketRequests.clear();
             if (manualDisconnect) {
                 updateBackendStatus("", "disconnected");
                 manualDisconnect = false;
@@ -595,6 +595,43 @@
                 updateLogStatus(false);
                 showResultModal(false, payload.message || "The request failed. Review the logs for details.");
             }
+            if (payload.type === "config" && pendingWebSocketRequests.has(payload.request_id)) {
+                const handlers = pendingWebSocketRequests.get(payload.request_id);
+                pendingWebSocketRequests.delete(payload.request_id);
+                handlers.resolve(payload.payload || {});
+            }
+            if (payload.type === "health" && pendingWebSocketRequests.has(payload.request_id)) {
+                const handlers = pendingWebSocketRequests.get(payload.request_id);
+                pendingWebSocketRequests.delete(payload.request_id);
+                handlers.resolve(payload);
+            }
+        });
+    };
+
+    const requestOverWebSocket = async (type) => {
+        await ensureWebSocketReady();
+        if (!logSocket || logSocket.readyState !== WebSocket.OPEN) {
+            throw new Error("WebSocket connection not ready.");
+        }
+        const requestId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+            ? crypto.randomUUID()
+            : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+        return new Promise((resolve, reject) => {
+            const timeout = window.setTimeout(() => {
+                pendingWebSocketRequests.delete(requestId);
+                reject(new Error(type + " request timed out"));
+            }, 5000);
+            pendingWebSocketRequests.set(requestId, {
+                resolve: (payload) => {
+                    window.clearTimeout(timeout);
+                    resolve(payload);
+                },
+                reject: (error) => {
+                    window.clearTimeout(timeout);
+                    reject(error);
+                },
+            });
+            logSocket.send(JSON.stringify({ type, request_id: requestId }));
         });
     };
 
@@ -986,11 +1023,11 @@
 
     const fetchConfig = async () => {
         try {
-            const response = await fetch(buildBackendUrl("/api/config"));
-            if (!response.ok) {
-                throw new Error("Config request failed: " + response.status);
+            const healthPayload = await requestOverWebSocket("health");
+            if (!healthPayload || healthPayload.status !== "ok") {
+                throw new Error("Health check failed");
             }
-            const payload = await response.json();
+            const payload = await requestOverWebSocket("config");
             populateConfig(payload);
             updateBackendStatus("connected", "connected");
         } catch (error) {

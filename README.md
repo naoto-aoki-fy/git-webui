@@ -28,7 +28,7 @@ pip install -r requirements.txt
 python backend/app.py
 ```
 
-The backend listens on `http://0.0.0.0:8080/` by default (override with the `--bind`/`--port` CLI flags).
+The backend listens on `http://0.0.0.0:8080/` by default (override with the `--bind`/`--port` CLI flags), and exposes its API over WebSocket at `/ws`.
 
 Serve the frontend from the same server:
 
@@ -42,7 +42,7 @@ Serve the static frontend separately (for example):
 python -m http.server 8000 -d frontend
 ```
 
-Then open `http://localhost:8000` in your browser and set the backend URL (for example, `http://localhost:8080`) in the UI so it can connect and load configuration.
+Then open `http://localhost:8000` in your browser and set the backend WebSocket URL (for example, `http://localhost:8080/ws` or `ws://localhost:8080/ws`) in the UI so it can connect and load configuration.
 
 1. Enter the repository SSH URL (HTTPS is also supported when credentials are already configured).
 2. Optionally specify a target branch. If the branch does not exist it will be created. You can also switch modes to create a new branch from a commit ID, start an orphan branch, or reset an existing branch to a specific commit and force-push it.

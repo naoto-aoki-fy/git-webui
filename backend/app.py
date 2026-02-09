@@ -982,23 +982,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     return {"form_values": form_values, "success": success}
 
 
-def _cors_headers() -> Dict[str, str]:
-    return {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-    }
-
-
-async def config_handler(request: web.Request) -> web.Response:
-    payload = _serialize_config()
-    return web.json_response(payload, headers=_cors_headers())
-
-
-async def health_handler(request: web.Request) -> web.Response:
-    return web.json_response({"status": "ok"}, headers=_cors_headers())
-
-
 async def frontend_handler(request: web.Request) -> web.Response:
     frontend_root = request.app["frontend_root"]
     return web.FileResponse(frontend_root / "index.html")
@@ -1025,6 +1008,24 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
                     logs = LogSink(entries=[], websocket=websocket)
                     result = await process_submission(_normalize_form_payload(form_data), logs)
                     await websocket.send_json({"type": "complete", "success": result["success"]})
+                elif payload.get("type") == "config":
+                    await websocket.send_json(
+                        {
+                            "type": "config",
+                            "request_id": payload.get("request_id"),
+                            "payload": _serialize_config(),
+                        }
+                    )
+                elif payload.get("type") == "health":
+                    await websocket.send_json(
+                        {
+                            "type": "health",
+                            "request_id": payload.get("request_id"),
+                            "status": "ok",
+                        }
+                    )
+                else:
+                    await websocket.send_json({"type": "error", "message": "Unknown websocket message type."})
             if msg.type == web.WSMsgType.ERROR:
                 break
     finally:
@@ -1043,8 +1044,6 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application()
     app["websockets"] = set()
     app.on_shutdown.append(close_websockets)
-    app.router.add_route("GET", "/api/health", health_handler)
-    app.router.add_route("GET", "/api/config", config_handler)
     app.router.add_route("GET", WS_PATH, websocket_handler)
     if serve_frontend:
         frontend_root = _frontend_root()
@@ -1054,7 +1053,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
         app.router.add_route("GET", "/", frontend_handler)
         app.router.add_route("GET", "/index.html", frontend_handler)
     else:
-        app.router.add_route("GET", "/", health_handler)
+        app.router.add_route("GET", "/", websocket_handler)
     return app
 
 
