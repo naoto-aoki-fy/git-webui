@@ -44,15 +44,19 @@
                     <input type="radio" name="branch_mode" value="orphan">
                     Create an orphan branch
                 </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="revert_to_commit">
+                    Reset an existing branch to the specified commit and force-push
+                </label>
             </div>
-            <p class="subtle">A new branch name is required for commit-based or orphan modes.</p>
+            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID.</p>
         </div>
         <div id="new_branch_group" class="hidden">
             <label for="new_branch">New Branch Name</label>
             <input type="text" id="new_branch" name="new_branch">
         </div>
         <div id="commit_id_group" class="hidden">
-            <label for="base_commit">Base Commit ID (e.g., a1b2c3d)</label>
+            <label for="base_commit" id="base_commit_label">Base Commit ID (e.g., a1b2c3d)</label>
             <input type="text" id="base_commit" name="base_commit">
         </div>
         <div id="git_user_group">
@@ -145,6 +149,7 @@
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
+    const commitIdLabel = document.getElementById("base_commit_label");
     const branchGroup = document.getElementById("branch_group");
     const repositoryField = document.getElementById("repository_url");
     const branchField = document.getElementById("branch");
@@ -632,13 +637,21 @@
 
     const toggleCommitField = () => {
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
-        const needsCommit = selectedMode === "from_commit";
+        const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
         const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan";
+        const needsExistingBranch = selectedMode === "revert_to_commit";
         commitIdGroup.classList.toggle("hidden", !needsCommit);
         if (needsCommit) {
             commitIdField.removeAttribute("disabled");
+            commitIdField.setAttribute("required", "");
+            if (commitIdLabel) {
+                commitIdLabel.textContent = selectedMode === "revert_to_commit"
+                    ? "Commit ID to Reset Branch To (e.g., a1b2c3d)"
+                    : "Base Commit ID (e.g., a1b2c3d)";
+            }
         } else {
             commitIdField.setAttribute("disabled", "");
+            commitIdField.removeAttribute("required");
         }
         newBranchGroup.classList.toggle("hidden", !needsNewBranch);
         if (needsNewBranch) {
@@ -648,14 +661,22 @@
         } else {
             newBranchField.setAttribute("disabled", "");
             newBranchField.removeAttribute("required");
-            branchField.removeAttribute("disabled");
+            if (!needsExistingBranch) {
+                branchField.removeAttribute("disabled");
+            }
         }
-        const hideDetails = selectedMode === "from_commit";
-        branchGroup.classList.toggle("hidden", selectedMode !== "default");
-        if (selectedMode === "default") {
+        const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
+        branchGroup.classList.toggle("hidden", !(selectedMode === "default" || needsExistingBranch));
+        if (selectedMode === "default" || needsExistingBranch) {
             branchField.removeAttribute("disabled");
+            if (needsExistingBranch) {
+                branchField.setAttribute("required", "");
+            } else {
+                branchField.removeAttribute("required");
+            }
         } else {
             branchField.setAttribute("disabled", "");
+            branchField.removeAttribute("required");
         }
         gitUserGroup.classList.toggle("hidden", hideDetails);
         commitMessageGroup.classList.toggle("hidden", hideDetails);

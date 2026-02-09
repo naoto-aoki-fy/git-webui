@@ -556,7 +556,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
-    if branch_mode == "from_commit":
+    if branch_mode in {"from_commit", "revert_to_commit"}:
         commit_message = ""
         allow_empty_commit = False
         patch_content = ""
@@ -572,7 +572,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
 
-    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else branch
+    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode == "default" else None)
     form_values = {
         "repository_url": repository_url,
         "branch": branch,
@@ -606,12 +606,20 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Repository URL is required."))
         return {"form_values": form_values, "success": False}
 
-    if branch_mode != "from_commit" and not patch_content.strip() and not allow_empty_commit:
+    if branch_mode not in {"from_commit", "revert_to_commit"} and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
         _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
+    if branch_mode == "revert_to_commit" and not branch:
+        _log_debug(logs, "Branch name missing for revert mode.")
+        logs.append(_timestamped("Branch is required for revert mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "revert_to_commit" and not base_commit:
+        _log_debug(logs, "Commit ID missing for revert mode.")
+        logs.append(_timestamped("Commit ID is required for revert mode."))
+        return {"form_values": form_values, "success": False}
     if branch_mode in {"from_commit", "orphan"} and not new_branch:
         _log_debug(logs, "New branch name missing for selected branch mode.")
         logs.append(_timestamped("New branch name is required for commit/orphan branch creation modes."))
@@ -667,7 +675,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError("git fetch failed")
                 _log_debug(logs, "git fetch completed.")
                 default_branch = await _resolve_default_branch(repo_dir, env, logs)
-                if branch_mode not in {"from_commit", "orphan"} and not branch:
+                if branch_mode == "default" and not branch:
                     branch = default_branch
                 target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
                 _log_debug(logs, "Resetting cached repository state to match remote default branch.")
@@ -720,7 +728,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError("Failed to set git user.email")
                 _log_debug(logs, "git user.email configured.")
 
-            if branch_mode not in {"from_commit", "orphan"} and not branch:
+            if branch_mode == "default" and not branch:
                 default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
                 branch = default_branch
 
@@ -760,6 +768,53 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if push_result.returncode != 0:
                     raise RuntimeError("git push failed")
                 logs.append(_timestamped("Branch created from commit and pushed successfully."))
+                success = True
+                return {"form_values": form_values, "success": success}
+            elif branch_mode == "revert_to_commit":
+                logs.append(_timestamped(f"Resetting branch {branch} to commit {base_commit}."))
+                if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{branch}", env, logs):
+                    raise RuntimeError(f"Branch '{branch}' does not exist on origin for revert mode")
+                _log_debug(logs, f"Checking out existing branch '{branch}' from origin for revert mode.")
+                checkout_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "switch",
+                    "-C",
+                    branch,
+                    f"origin/{branch}",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if checkout_result.returncode != 0:
+                    raise RuntimeError("Failed to checkout branch for revert mode")
+                _log_debug(logs, f"Resetting branch '{branch}' to commit '{base_commit}'.")
+                reset_result = await run_command(
+                    "git",
+                    "reset",
+                    "--hard",
+                    base_commit,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if reset_result.returncode != 0:
+                    raise RuntimeError("git reset --hard failed")
+                _log_debug(logs, f"Force-pushing branch '{branch}' to origin.")
+                push_result = await run_command(
+                    "git",
+                    "-c", "core.hooksPath=" + DEVNULL,
+                    "push",
+                    "-f",
+                    "origin",
+                    branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if push_result.returncode != 0:
+                    raise RuntimeError("git push failed")
+                logs.append(_timestamped("Branch reset and force-pushed successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}
             elif branch_mode == "orphan":
