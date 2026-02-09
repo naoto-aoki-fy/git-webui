@@ -703,6 +703,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 config_result = await run_command(
                     "git",
                     "config",
+                    "--local",
                     "user.name",
                     user_name,
                     cwd=repo_dir,
@@ -718,6 +719,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 config_result = await run_command(
                     "git",
                     "config",
+                    "--local",
                     "user.email",
                     user_email,
                     cwd=repo_dir,
