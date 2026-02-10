@@ -71,7 +71,7 @@ default_repositories = ["git@github.com:example/repo.git", "https://github.com/e
 ```
 
 - `ssh_keys`: the `path` is used server-side for `ssh -i`, while the UI only receives the `label` and the order index. Set `default = true` to preselect a key in the UI.
-- `git_users`: the `name`/`email` pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI. Use `default_repositories` to list repository URLs that should auto-select that user when entered in the form (matching is case-insensitive and normalizes both HTTPS and SSH URLs by hostname/path, trimming trailing slashes and `.git`).
+- `git_users`: the `name`/`email` pair is applied via `git config` when selected. Set `default = true` to preselect a user in the UI. `default_repositories` entries are matched case-insensitively against the last path segment of the entered repository URL (after normalizing HTTPS/SSH formats, trimming trailing slashes, and removing `.git`), and partial matches are allowed (for example, `"git"` matches `git-webui`).
 
 If either list is empty the corresponding dropdown shows that no options are available. The frontend receives default indices (`default_ssh_key_index` / `default_git_user_index`) plus the per-entry labels, and it uses the list index values when submitting selections.
 

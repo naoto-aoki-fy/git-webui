@@ -20,8 +20,8 @@ name = "Taro Yamada"
 email = "taro.yamada@company.example"
 default = true
 default_repositories = [
-  "git@github.com:company/example-repo.git",
-  "https://github.com/company/another-repo",
+  "example-repo",
+  "another",
 ]
 
 [[git_users]]
@@ -29,11 +29,11 @@ label = "Personal"
 name = "Taro Yamada"
 email = "taro.yamada@example.mail.com"
 default = false
-default_repositories = ["git@github.com:taro/personal-repo.git"]
+default_repositories = ["personal-repo"]
 
 [[git_users]]
 label = "Customer (Contract)"
 name = "Taro Yamada"
 email = "taro.yamada@customer.example"
 default = false
-default_repositories = ["git@gitlab.example.com:customer/project.git"]
+default_repositories = ["project"]

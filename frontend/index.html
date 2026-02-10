@@ -948,19 +948,29 @@
         return normalized.toLowerCase();
     };
 
+    const getRepositoryName = (value) => {
+        const normalized = normalizeRepository(value);
+        if (!normalized) {
+            return "";
+        }
+        const parts = normalized.split("/").filter(Boolean);
+        return parts.length > 0 ? parts[parts.length - 1] : normalized;
+    };
+
     const findDefaultGitUserIndexForRepo = (repositoryUrl) => {
         if (!repositoryUrl) {
             return null;
         }
-        const normalizedRepo = normalizeRepository(repositoryUrl);
-        if (!normalizedRepo) {
+        const repositoryName = getRepositoryName(repositoryUrl);
+        if (!repositoryName) {
             return null;
         }
         for (let idx = 0; idx < gitUserConfig.length; idx += 1) {
             const entry = gitUserConfig[idx];
             const defaults = Array.isArray(entry.default_repositories) ? entry.default_repositories : [];
             for (const repoValue of defaults) {
-                if (normalizeRepository(repoValue) === normalizedRepo) {
+                const defaultRepoName = getRepositoryName(repoValue);
+                if (defaultRepoName && repositoryName.includes(defaultRepoName)) {
                     return idx;
                 }
             }
