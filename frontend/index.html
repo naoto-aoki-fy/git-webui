@@ -529,14 +529,15 @@
     const { params: queryParams, source: querySource } = getQueryParams();
     const hasQueryParams = [...queryParams.keys()].length > 0;
 
+    const getDefaultBackendUrl = () => normalizeBackendUrl(window.location.origin + "/ws");
+
     const getBackendUrl = () => {
         const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
-        const fallback = window.location.origin;
-        return normalizeBackendUrl(stored || fallback);
+        return normalizeBackendUrl(stored || getDefaultBackendUrl());
     };
 
     const setBackendUrl = (value) => {
-        const normalized = normalizeBackendUrl(value || window.location.origin);
+        const normalized = normalizeBackendUrl(value || getDefaultBackendUrl());
         window.localStorage.setItem(BACKEND_STORAGE_KEY, normalized);
         if (backendUrlField) {
             backendUrlField.value = normalized;
@@ -1310,7 +1311,7 @@
         if (backendUrlField && !backendUrlField.value.trim()) {
             const storedBackend = window.localStorage.getItem(BACKEND_STORAGE_KEY);
             const draftBackend = typeof savedDraft.backend_url === "string" ? savedDraft.backend_url : "";
-            backendUrlField.value = normalizeBackendUrl(storedBackend || draftBackend || window.location.origin);
+            backendUrlField.value = normalizeBackendUrl(storedBackend || draftBackend || getDefaultBackendUrl());
         }
         updateChatGPTLink();
         togglePatchRequired();
