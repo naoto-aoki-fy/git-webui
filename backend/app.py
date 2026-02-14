@@ -639,6 +639,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         _log_debug(logs, "Branch B missing for merge mode.")
         logs.append(_timestamped("Branch B is required for merge mode."))
         return {"form_values": form_values, "success": False}
+    if branch_mode == "merge_branches" and branch and new_branch and branch == new_branch:
+        _log_debug(logs, "Branch A and Branch B are identical in merge mode.")
+        logs.append(_timestamped("Branch A and Branch B must be different for merge mode."))
+        return {"form_values": form_values, "success": False}
 
     ssh_key_path: Optional[Path] = None
 
@@ -861,8 +865,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 _log_debug(logs, f"Merging branch '{new_branch}' into '{branch}'.")
                 merge_result = await run_git_command(
                     "merge",
-                    "--no-ff",
-                    "--no-edit",
+                    "--ff-only",
                     f"origin/{new_branch}",
                     cwd=repo_dir,
                     env=env,
@@ -881,7 +884,31 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 )
                 if push_result.returncode != 0:
                     raise RuntimeError("git push failed")
-                logs.append(_timestamped("Branch merge completed and pushed successfully."))
+                _log_debug(logs, f"Deleting merged source branch '{new_branch}' on origin.")
+                delete_remote_result = await run_git_command(
+                    "push",
+                    "origin",
+                    "--delete",
+                    new_branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if delete_remote_result.returncode != 0:
+                    raise RuntimeError("Failed to delete source branch on origin")
+                if await _git_ref_exists(repo_dir, f"refs/heads/{new_branch}", env, logs):
+                    _log_debug(logs, f"Deleting merged source branch '{new_branch}' locally.")
+                    delete_local_result = await run_git_command(
+                        "branch",
+                        "-d",
+                        new_branch,
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if delete_local_result.returncode != 0:
+                        raise RuntimeError("Failed to delete local source branch")
+                logs.append(_timestamped("Branch merge completed, pushed, and source branch deleted."))
                 success = True
                 return {"form_values": form_values, "success": success}
             elif branch and not repo_prepared:
