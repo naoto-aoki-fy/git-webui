@@ -579,7 +579,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
 
-    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode == "default" else None)
+    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "merge_branches"} else None)
     form_values = {
         "repository_url": repository_url,
         "branch": branch,
@@ -613,7 +613,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Repository URL is required."))
         return {"form_values": form_values, "success": False}
 
-    if branch_mode not in {"from_commit", "revert_to_commit"} and not patch_content.strip() and not allow_empty_commit:
+    if branch_mode not in {"from_commit", "revert_to_commit", "merge_branches"} and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return {"form_values": form_values, "success": False}
@@ -630,6 +630,14 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     if branch_mode in {"from_commit", "orphan"} and not new_branch:
         _log_debug(logs, "New branch name missing for selected branch mode.")
         logs.append(_timestamped("New branch name is required for commit/orphan branch creation modes."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "merge_branches" and not branch:
+        _log_debug(logs, "Branch A missing for merge mode.")
+        logs.append(_timestamped("Branch A is required for merge mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "merge_branches" and not new_branch:
+        _log_debug(logs, "Branch B missing for merge mode.")
+        logs.append(_timestamped("Branch B is required for merge mode."))
         return {"form_values": form_values, "success": False}
 
     ssh_key_path: Optional[Path] = None
@@ -832,6 +840,50 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     env=env,
                     log=logs,
                 )
+            elif branch_mode == "merge_branches":
+                logs.append(_timestamped(f"Merging branch {new_branch} into {branch}."))
+                if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{branch}", env, logs):
+                    raise RuntimeError(f"Branch '{branch}' does not exist on origin")
+                if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{new_branch}", env, logs):
+                    raise RuntimeError(f"Branch '{new_branch}' does not exist on origin")
+                _log_debug(logs, f"Checking out branch '{branch}' from origin for merge mode.")
+                checkout_result = await run_git_command(
+                    "switch",
+                    "-C",
+                    branch,
+                    f"origin/{branch}",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if checkout_result.returncode != 0:
+                    raise RuntimeError("Failed to checkout branch A for merge mode")
+                _log_debug(logs, f"Merging branch '{new_branch}' into '{branch}'.")
+                merge_result = await run_git_command(
+                    "merge",
+                    "--no-ff",
+                    "--no-edit",
+                    f"origin/{new_branch}",
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if merge_result.returncode != 0:
+                    raise RuntimeError("git merge failed (possibly due to conflicts)")
+                _log_debug(logs, f"Pushing merged branch '{branch}' to origin.")
+                push_result = await run_git_command(
+                    "push",
+                    "origin",
+                    branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if push_result.returncode != 0:
+                    raise RuntimeError("git push failed")
+                logs.append(_timestamped("Branch merge completed and pushed successfully."))
+                success = True
+                return {"form_values": form_values, "success": success}
             elif branch and not repo_prepared:
                 _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_git_command(

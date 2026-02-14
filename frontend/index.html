@@ -215,11 +215,15 @@
                     <input type="radio" name="branch_mode" value="revert_to_commit">
                     Reset an existing branch to the specified commit and force-push
                 </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="merge_branches">
+                    Merge branch B into branch A (fails if conflicts occur)
+                </label>
             </div>
-            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID.</p>
+            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID. Merge mode requires both branch A and branch B.</p>
         </div>
         <div id="new_branch_group" class="hidden">
-            <label for="new_branch">New Branch Name</label>
+            <label for="new_branch" id="new_branch_label">New Branch Name</label>
             <input type="text" id="new_branch" name="new_branch">
         </div>
         <div id="commit_id_group" class="hidden">
@@ -322,6 +326,7 @@
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
+    const newBranchLabel = document.getElementById("new_branch_label");
     const gitUserGroup = document.getElementById("git_user_group");
     const commitMessageGroup = document.getElementById("commit_message_group");
     const allowEmptyGroup = document.getElementById("allow_empty_group");
@@ -843,8 +848,8 @@
     const toggleCommitField = () => {
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan";
-        const needsExistingBranch = selectedMode === "revert_to_commit";
+        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
+        const needsExistingBranch = selectedMode === "revert_to_commit" || selectedMode === "merge_branches";
         commitIdGroup.classList.toggle("hidden", !needsCommit);
         if (needsCommit) {
             commitIdField.removeAttribute("disabled");
@@ -863,9 +868,15 @@
             newBranchField.removeAttribute("disabled");
             newBranchField.setAttribute("required", "");
             branchField.setAttribute("disabled", "");
+            if (newBranchLabel) {
+                newBranchLabel.textContent = selectedMode === "merge_branches" ? "Branch B" : "New Branch Name";
+            }
         } else {
             newBranchField.setAttribute("disabled", "");
             newBranchField.removeAttribute("required");
+            if (newBranchLabel) {
+                newBranchLabel.textContent = "New Branch Name";
+            }
             if (!needsExistingBranch) {
                 branchField.removeAttribute("disabled");
             }
@@ -876,19 +887,27 @@
             branchField.removeAttribute("disabled");
             if (needsExistingBranch) {
                 branchField.setAttribute("required", "");
+                if (selectedMode === "merge_branches") {
+                    branchField.setAttribute("placeholder", "Branch A");
+                } else {
+                    branchField.setAttribute("placeholder", "");
+                }
             } else {
                 branchField.removeAttribute("required");
+                branchField.setAttribute("placeholder", "");
             }
         } else {
             branchField.setAttribute("disabled", "");
             branchField.removeAttribute("required");
+            branchField.setAttribute("placeholder", "");
         }
-        gitUserGroup.classList.toggle("hidden", hideDetails);
-        commitMessageGroup.classList.toggle("hidden", hideDetails);
-        prMessageGroup.classList.toggle("hidden", hideDetails);
-        allowEmptyGroup.classList.toggle("hidden", hideDetails);
-        patchGroup.classList.toggle("hidden", hideDetails || allowEmptyCommit.checked);
-        if (hideDetails) {
+        const isMergeMode = selectedMode === "merge_branches";
+        gitUserGroup.classList.toggle("hidden", hideDetails || isMergeMode);
+        commitMessageGroup.classList.toggle("hidden", hideDetails || isMergeMode);
+        prMessageGroup.classList.toggle("hidden", hideDetails || isMergeMode);
+        allowEmptyGroup.classList.toggle("hidden", hideDetails || isMergeMode);
+        patchGroup.classList.toggle("hidden", hideDetails || isMergeMode || allowEmptyCommit.checked);
+        if (hideDetails || isMergeMode) {
             gitUserField.setAttribute("disabled", "");
             commitMessageField.setAttribute("disabled", "");
             prMessageField.setAttribute("disabled", "");
