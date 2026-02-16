@@ -39,16 +39,12 @@
   const baseUrl = "https://naoto-aoki-fy.github.io/git-webui/";
   const taskId = location.pathname.split("/").filter(Boolean).pop();
 
-  const PLACEHOLDER_PR_TITLE = "Codex-generated pull request";
-  const PLACEHOLDER_PR_MESSAGE =
-    "Codex generated this pull request, but encountered an unexpected error after generation. This is a placeholder PR message.";
-
   function buildTurnMdListMarkdown(turnsInfo) {
     if (!turnsInfo || typeof turnsInfo !== "object") {
       return [
         "# Conversation (fallback)",
         "",
-        "(turnsInfo not found; the placeholder PR message was used)",
+        "(turnsInfo not found)",
       ].join("\n");
     }
 
@@ -57,7 +53,7 @@
       return [
         "# Conversation (fallback)",
         "",
-        "(turn_mapping not found; the placeholder PR message was used)",
+        "(turn_mapping not found)",
       ].join("\n");
     }
 
@@ -404,12 +400,7 @@
   const pr = outputItems.find((value) => value && value.type === "pr");
   if (!pr) throw new Error("No PR output item found.");
 
-  const isPlaceholderPr =
-    pr.pr_title === PLACEHOLDER_PR_TITLE && pr.pr_message === PLACEHOLDER_PR_MESSAGE;
-
-  const prMessage = isPlaceholderPr
-    ? buildTurnMdListMarkdown(turnsInfo)
-    : "# " + pr.pr_title + "\n\n" + pr.pr_message;
+  const prMessage = buildTurnMdListMarkdown(turnsInfo);
 
   const patchOriginal = pr?.output_diff?.diff ?? "";
   const patch = reduceDiffContext(patchOriginal, 5);
