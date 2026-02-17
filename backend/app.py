@@ -712,35 +712,50 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError("git clone failed")
                 _log_debug(logs, "git clone completed.")
 
-            if user_name:
-                _log_debug(logs, "Configuring git user.name.")
-                config_result = await run_git_command(
-                    "config",
-                    "--local",
-                    "user.name",
-                    user_name,
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if config_result.returncode != 0:
-                    raise RuntimeError("Failed to set git user.name")
-                _log_debug(logs, "git user.name configured.")
+            if branch_mode == "merge_branches":
+                _log_debug(logs, "Merge mode selected; unsetting local git user.name/user.email.")
+                for config_key in ("user.name", "user.email"):
+                    unset_result = await run_git_command(
+                        "config",
+                        "--local",
+                        "--unset-all",
+                        config_key,
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if unset_result.returncode not in {0, 5}:
+                        raise RuntimeError(f"Failed to unset git {config_key}")
+            else:
+                if user_name:
+                    _log_debug(logs, "Configuring git user.name.")
+                    config_result = await run_git_command(
+                        "config",
+                        "--local",
+                        "user.name",
+                        user_name,
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if config_result.returncode != 0:
+                        raise RuntimeError("Failed to set git user.name")
+                    _log_debug(logs, "git user.name configured.")
 
-            if user_email:
-                _log_debug(logs, "Configuring git user.email.")
-                config_result = await run_git_command(
-                    "config",
-                    "--local",
-                    "user.email",
-                    user_email,
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if config_result.returncode != 0:
-                    raise RuntimeError("Failed to set git user.email")
-                _log_debug(logs, "git user.email configured.")
+                if user_email:
+                    _log_debug(logs, "Configuring git user.email.")
+                    config_result = await run_git_command(
+                        "config",
+                        "--local",
+                        "user.email",
+                        user_email,
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if config_result.returncode != 0:
+                        raise RuntimeError("Failed to set git user.email")
+                    _log_debug(logs, "git user.email configured.")
 
             if branch_mode == "default" and not branch:
                 default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
