@@ -18,7 +18,7 @@ import traceback
 
 from aiohttp import web
 
-SSE_PATH = "/ws"
+SSE_PATH = "/events"
 API_PREFIX = "/api"
 
 DEFAULT_CONFIG_PATH = Path("config.toml")

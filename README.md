@@ -90,7 +90,7 @@ Then open:
 
 - `http://localhost:8080/` (backend serving frontend)
 
-The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend SSE endpoint like `http://localhost:8080/ws`.
+The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend SSE endpoint like `http://localhost:8080/events`.
 
 ## Backend CLI options
 
@@ -105,7 +105,7 @@ The frontend can also be hosted separately (for example via GitHub Pages) and po
 
 ## Frontend notes
 
-- The backend endpoint is configured in the UI as a full URL including `/ws` (SSE stream).
+- The backend endpoint is configured in the UI as a full URL including `/events` (SSE stream).
 - Query/hash parameters are supported for pre-filling fields.
 - “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.

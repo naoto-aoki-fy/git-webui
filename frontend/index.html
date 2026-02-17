@@ -289,9 +289,9 @@
                 </div>
             </div>
             <div class="field-group">
-                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080/ws">
+                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080/events">
             </div>
-            <p class="subtle">Set the backend SSE endpoint as an absolute URL (including the /ws path). Examples: http://localhost:8080/ws, https://localhost:1443/ws. This value is saved in your browser.</p>
+            <p class="subtle">Set the backend SSE endpoint as an absolute URL (including the /events path). Examples: http://localhost:8080/events, https://localhost:1443/events. This value is saved in your browser.</p>
         </div>
         <button type="button" class="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
@@ -537,7 +537,7 @@
     const { params: queryParams, source: querySource } = getQueryParams();
     const hasQueryParams = [...queryParams.keys()].length > 0;
 
-    const getDefaultBackendUrl = () => normalizeBackendUrl(window.location.origin + "/ws");
+    const getDefaultBackendUrl = () => normalizeBackendUrl(window.location.origin + "/events");
 
     const getApiBaseUrl = () => {
         const backendUrl = new URL(getBackendUrl());
