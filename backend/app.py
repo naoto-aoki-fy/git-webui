@@ -55,6 +55,39 @@ def _load_config(config_path: Path) -> Dict[str, object]:
 APP_CONFIG = {"ssh_keys": [], "git_users": []}
 
 
+def _resolve_cors_allow_origin() -> str:
+    return os.environ.get("CORS_ALLOW_ORIGIN", "*").strip() or "*"
+
+
+def _build_cors_headers(request: web.Request) -> Dict[str, str]:
+    allowed = _resolve_cors_allow_origin()
+    origin = request.headers.get("Origin", "")
+
+    if allowed == "*":
+        allow_origin = "*"
+    else:
+        allow_origin = origin if origin and origin == allowed else allowed
+
+    headers = {
+        "Access-Control-Allow-Origin": allow_origin,
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    }
+    if allow_origin != "*":
+        headers["Vary"] = "Origin"
+    return headers
+
+
+@web.middleware
+async def cors_middleware(request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]) -> web.StreamResponse:
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_build_cors_headers(request))
+
+    response = await handler(request)
+    response.headers.update(_build_cors_headers(request))
+    return response
+
+
 @dataclass
 class CommandResult:
     returncode: int
@@ -1166,7 +1199,7 @@ async def close_sse_clients(app: web.Application) -> None:
 
 
 def create_app(serve_frontend: bool = True) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[cors_middleware])
     app["sse_clients"] = {}
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
