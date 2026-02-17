@@ -4,8 +4,8 @@ A small web UI for applying a unified diff patch to a Git repository with `git a
 
 This repository currently contains:
 
-- **Backend** (`backend/app.py`): `aiohttp` server + WebSocket API that performs Git operations.
-- **Frontend** (`frontend/index.html`): single-file static UI that connects to the backend over WebSocket.
+- **Backend** (`backend/app.py`): `aiohttp` server + SSE log stream and HTTP API that performs Git operations.
+- **Frontend** (`frontend/index.html`): single-file static UI that connects to the backend over Server-Sent Events (SSE) and HTTP.
 - **Bookmarklet** (`bookmarklet/codex.js`): helper script to open the hosted frontend with pre-filled data from a Codex task page.
 
 ## Current capabilities
@@ -31,7 +31,7 @@ Additional behavior:
 
 - SSH key selection from config (sets `GIT_SSH_COMMAND`).
 - Git author identity selection from config (`user.name`, `user.email`).
-- Live operation logs streamed over WebSocket.
+- Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
 
 ## Repository structure
@@ -90,7 +90,7 @@ Then open:
 
 - `http://localhost:8080/` (backend serving frontend)
 
-The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend WebSocket endpoint like `http://localhost:8080/ws`.
+The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend SSE endpoint like `http://localhost:8080/ws`.
 
 ## Backend CLI options
 
@@ -105,7 +105,7 @@ The frontend can also be hosted separately (for example via GitHub Pages) and po
 
 ## Frontend notes
 
-- The backend endpoint is configured in the UI as a full URL including `/ws`.
+- The backend endpoint is configured in the UI as a full URL including `/ws` (SSE stream).
 - Query/hash parameters are supported for pre-filling fields.
 - “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.

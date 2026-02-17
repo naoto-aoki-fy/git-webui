@@ -13,12 +13,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
-from typing import Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 import traceback
 
 from aiohttp import web
 
-WS_PATH = "/ws"
+SSE_PATH = "/ws"
+API_PREFIX = "/api"
 
 DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
@@ -64,12 +65,12 @@ class CommandResult:
 @dataclass
 class LogSink:
     entries: List[str]
-    websocket: Optional[web.WebSocketResponse] = None
+    emit: Optional[Callable[[Dict[str, object]], Awaitable[None]]] = None
 
     def append(self, message: str) -> None:
         self.entries.append(message)
-        if self.websocket and not self.websocket.closed:
-            asyncio.create_task(self.websocket.send_json({"type": "log", "line": message}))
+        if self.emit is not None:
+            asyncio.create_task(self.emit({"type": "log", "line": message}))
 
 
 async def run_command(
@@ -1083,64 +1084,95 @@ async def frontend_handler(request: web.Request) -> web.Response:
     return web.FileResponse(frontend_root / "index.html")
 
 
-async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
-    websocket = web.WebSocketResponse()
-    await websocket.prepare(request)
-    sockets: set[web.WebSocketResponse] = request.app["websockets"]
-    sockets.add(websocket)
+def _sse_payload(message: Dict[str, object]) -> str:
+    return f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
+
+
+async def sse_handler(request: web.Request) -> web.StreamResponse:
+    client_id = request.query.get("client_id", "").strip()
+    if not client_id:
+        raise web.HTTPBadRequest(text="client_id query parameter is required")
+
+    stream = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+    await stream.prepare(request)
+
+    queue: asyncio.Queue[Dict[str, object]] = asyncio.Queue()
+    clients: Dict[str, asyncio.Queue[Dict[str, object]]] = request.app["sse_clients"]
+    clients[client_id] = queue
+
     try:
-        async for msg in websocket:
-            if msg.type == web.WSMsgType.TEXT:
-                try:
-                    payload = json.loads(msg.data)
-                except json.JSONDecodeError:
-                    await websocket.send_json({"type": "error", "message": "Invalid JSON payload."})
-                    continue
-                if payload.get("type") == "submit":
-                    form_data = payload.get("payload", {})
-                    if not isinstance(form_data, dict):
-                        await websocket.send_json({"type": "error", "message": "Invalid form payload."})
-                        continue
-                    logs = LogSink(entries=[], websocket=websocket)
-                    result = await process_submission(_normalize_form_payload(form_data), logs)
-                    await websocket.send_json({"type": "complete", "success": result["success"]})
-                elif payload.get("type") == "config":
-                    await websocket.send_json(
-                        {
-                            "type": "config",
-                            "request_id": payload.get("request_id"),
-                            "payload": _serialize_config(),
-                        }
-                    )
-                elif payload.get("type") == "health":
-                    await websocket.send_json(
-                        {
-                            "type": "health",
-                            "request_id": payload.get("request_id"),
-                            "status": "ok",
-                        }
-                    )
-                else:
-                    await websocket.send_json({"type": "error", "message": "Unknown websocket message type."})
-            if msg.type == web.WSMsgType.ERROR:
+        await stream.write(_sse_payload({"type": "connected"}).encode("utf-8"))
+        while True:
+            try:
+                message = await asyncio.wait_for(queue.get(), timeout=15)
+                await stream.write(_sse_payload(message).encode("utf-8"))
+            except asyncio.TimeoutError:
+                await stream.write(b": keepalive\n\n")
+            except (ConnectionResetError, asyncio.CancelledError):
                 break
+    except ConnectionResetError:
+        pass
     finally:
-        sockets.discard(websocket)
-    return websocket
+        if clients.get(client_id) is queue:
+            del clients[client_id]
+    return stream
 
 
-async def close_websockets(app: web.Application) -> None:
-    sockets: set[web.WebSocketResponse] = app["websockets"]
-    if not sockets:
+async def _emit_to_client(app: web.Application, client_id: str, message: Dict[str, object]) -> None:
+    queue: Optional[asyncio.Queue[Dict[str, object]]] = app["sse_clients"].get(client_id)
+    if queue is None:
         return
-    await asyncio.gather(*(socket.close() for socket in list(sockets)))
+    await queue.put(message)
+
+
+async def submit_handler(request: web.Request) -> web.Response:
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise web.HTTPBadRequest(text="Invalid JSON payload")
+
+    if not isinstance(payload, dict):
+        raise web.HTTPBadRequest(text="Invalid JSON payload")
+    form_data = payload.get("payload", {})
+    client_id = str(payload.get("client_id", "")).strip()
+    if not isinstance(form_data, dict):
+        raise web.HTTPBadRequest(text="Invalid form payload")
+    if not client_id:
+        raise web.HTTPBadRequest(text="client_id is required")
+
+    logs = LogSink(entries=[], emit=lambda message: _emit_to_client(request.app, client_id, message))
+    result = await process_submission(_normalize_form_payload(form_data), logs)
+    await _emit_to_client(request.app, client_id, {"type": "complete", "success": result["success"]})
+    return web.json_response({"accepted": True})
+
+
+async def config_handler(_: web.Request) -> web.Response:
+    return web.json_response({"payload": _serialize_config()})
+
+
+async def health_handler(_: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"})
+
+
+async def close_sse_clients(app: web.Application) -> None:
+    app["sse_clients"].clear()
 
 
 def create_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application()
-    app["websockets"] = set()
-    app.on_shutdown.append(close_websockets)
-    app.router.add_route("GET", WS_PATH, websocket_handler)
+    app["sse_clients"] = {}
+    app.on_shutdown.append(close_sse_clients)
+    app.router.add_route("GET", SSE_PATH, sse_handler)
+    app.router.add_route("POST", f"{API_PREFIX}/submit", submit_handler)
+    app.router.add_route("GET", f"{API_PREFIX}/config", config_handler)
+    app.router.add_route("GET", f"{API_PREFIX}/health", health_handler)
     if serve_frontend:
         frontend_root = _frontend_root()
         if not frontend_root.exists():
@@ -1149,7 +1181,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
         app.router.add_route("GET", "/", frontend_handler)
         app.router.add_route("GET", "/index.html", frontend_handler)
     else:
-        app.router.add_route("GET", "/", websocket_handler)
+        app.router.add_route("GET", "/", sse_handler)
     return app
 
 

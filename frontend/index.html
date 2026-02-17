@@ -291,7 +291,7 @@
             <div class="field-group">
                 <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080/ws">
             </div>
-            <p class="subtle">Set the backend WebSocket endpoint as an absolute URL (including the /ws path). Examples: http://localhost:8080/ws, ws://localhost:8080/ws, https://localhost:1443/ws, wss://localhost:1443/ws. This value is saved in your browser.</p>
+            <p class="subtle">Set the backend SSE endpoint as an absolute URL (including the /ws path). Examples: http://localhost:8080/ws, https://localhost:1443/ws. This value is saved in your browser.</p>
         </div>
         <button type="button" class="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
@@ -398,13 +398,14 @@
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
     const DRAFT_STORAGE_KEY = "git-webui.draft";
     const MAX_STORED_VALUES = 10;
-    let logSocket = null;
+    let logStream = null;
+    let activeClientId = null;
     let gitUserConfig = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
-    const pendingWebSocketRequests = new Map();
+    
 
     const parseGitHubRepository = (value) => {
         if (!value || typeof value !== "string") {
@@ -538,6 +539,15 @@
 
     const getDefaultBackendUrl = () => normalizeBackendUrl(window.location.origin + "/ws");
 
+    const getApiBaseUrl = () => {
+        const backendUrl = new URL(getBackendUrl());
+        return normalizeBackendUrl(backendUrl.origin + "/api");
+    };
+
+    const createClientId = () => (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+
     const getBackendUrl = () => {
         const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
         return normalizeBackendUrl(stored || getDefaultBackendUrl());
@@ -552,21 +562,43 @@
         return normalized;
     };
 
-    const connectWebSocket = () => {
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+    const handleServerEvent = (payload) => {
+        if (payload.type === "log") {
+            appendLogLine(payload.line);
+        }
+        if (payload.type === "complete") {
+            updateLogStatus(payload.success);
+            if (payload.success) {
+                clearProcessingFields();
+            }
+            showResultModal(
+                payload.success,
+                payload.success
+                    ? "The request finished successfully."
+                    : "The request finished, but there were errors. Review the logs for details.",
+            );
+        }
+        if (payload.type === "error") {
+            appendLogLine(payload.message);
+            updateLogStatus(false);
+            showResultModal(false, payload.message || "The request failed. Review the logs for details.");
+        }
+    };
+
+    const connectEventStream = () => {
+        if (logStream && logStream.readyState === EventSource.OPEN) {
             return;
         }
-        const wsUrl = new URL(getBackendUrl());
-        wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
-        logSocket = new WebSocket(wsUrl.toString());
-        logSocket.addEventListener("open", () => {
+        if (!activeClientId) {
+            activeClientId = createClientId();
+        }
+        const sseUrl = new URL(getBackendUrl());
+        sseUrl.searchParams.set("client_id", activeClientId);
+        logStream = new EventSource(sseUrl.toString());
+        logStream.addEventListener("open", () => {
             updateBackendStatus("connected", "connected");
         });
-        logSocket.addEventListener("close", () => {
-            pendingWebSocketRequests.forEach((handlers) => {
-                handlers.reject(new Error("WebSocket closed before response."));
-            });
-            pendingWebSocketRequests.clear();
+        logStream.addEventListener("error", () => {
             if (manualDisconnect) {
                 updateBackendStatus("", "disconnected");
                 manualDisconnect = false;
@@ -574,10 +606,7 @@
             }
             updateBackendStatus("error", "disconnected");
         });
-        logSocket.addEventListener("error", () => {
-            updateBackendStatus("error", "error");
-        });
-        logSocket.addEventListener("message", (event) => {
+        logStream.addEventListener("message", (event) => {
             let payload;
             try {
                 payload = JSON.parse(event.data);
@@ -585,64 +614,20 @@
                 appendLogLine(event.data);
                 return;
             }
-            if (payload.type === "log") {
-                appendLogLine(payload.line);
-            }
-            if (payload.type === "complete") {
-                updateLogStatus(payload.success);
-                if (payload.success) {
-                    clearProcessingFields();
-                }
-                showResultModal(
-                    payload.success,
-                    payload.success
-                        ? "The request finished successfully."
-                        : "The request finished, but there were errors. Review the logs for details.",
-                );
-            }
-            if (payload.type === "error") {
-                appendLogLine(payload.message);
-                updateLogStatus(false);
-                showResultModal(false, payload.message || "The request failed. Review the logs for details.");
-            }
-            if (payload.type === "config" && pendingWebSocketRequests.has(payload.request_id)) {
-                const handlers = pendingWebSocketRequests.get(payload.request_id);
-                pendingWebSocketRequests.delete(payload.request_id);
-                handlers.resolve(payload.payload || {});
-            }
-            if (payload.type === "health" && pendingWebSocketRequests.has(payload.request_id)) {
-                const handlers = pendingWebSocketRequests.get(payload.request_id);
-                pendingWebSocketRequests.delete(payload.request_id);
-                handlers.resolve(payload);
-            }
+            handleServerEvent(payload);
         });
     };
 
-    const requestOverWebSocket = async (type) => {
-        await ensureWebSocketReady();
-        if (!logSocket || logSocket.readyState !== WebSocket.OPEN) {
-            throw new Error("WebSocket connection not ready.");
-        }
-        const requestId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
-            ? crypto.randomUUID()
-            : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
-        return new Promise((resolve, reject) => {
-            const timeout = window.setTimeout(() => {
-                pendingWebSocketRequests.delete(requestId);
-                reject(new Error(type + " request timed out"));
-            }, 5000);
-            pendingWebSocketRequests.set(requestId, {
-                resolve: (payload) => {
-                    window.clearTimeout(timeout);
-                    resolve(payload);
-                },
-                reject: (error) => {
-                    window.clearTimeout(timeout);
-                    reject(error);
-                },
-            });
-            logSocket.send(JSON.stringify({ type, request_id: requestId }));
+    const requestApi = async (method, path, payload = null) => {
+        const response = await fetch(getApiBaseUrl() + path, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: payload ? JSON.stringify(payload) : undefined,
         });
+        if (!response.ok) {
+            throw new Error("Request failed: " + response.status);
+        }
+        return response.json();
     };
 
     const readStoredValues = (key) => {
@@ -786,26 +771,29 @@
         }, 200);
     };
 
-    const ensureWebSocketReady = () => new Promise((resolve) => {
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+    const ensureEventStreamReady = () => new Promise((resolve) => {
+        if (logStream && logStream.readyState === EventSource.OPEN) {
             resolve();
             return;
         }
-        connectWebSocket();
-        logSocket.addEventListener("open", () => resolve(), { once: true });
+        connectEventStream();
+        if (!logStream) {
+            return;
+        }
+        logStream.addEventListener("open", () => resolve(), { once: true });
     });
 
-    const sendFormOverWebSocket = async () => {
-        await ensureWebSocketReady();
+    const sendFormOverApi = async () => {
+        await ensureEventStreamReady();
         const payload = Object.fromEntries(new FormData(form).entries());
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+        if (logStream && logStream.readyState === EventSource.OPEN && activeClientId) {
             updateLogStatus(null);
             if (logOutput) {
                 logOutput.textContent = "";
             }
-            logSocket.send(JSON.stringify({ type: "submit", payload }));
+            await requestApi("POST", "/submit", { payload, client_id: activeClientId });
         } else {
-            appendLogLine("[client] WebSocket connection not ready.");
+            appendLogLine("[client] SSE connection not ready.");
             updateLogStatus(false);
         }
     };
@@ -1057,11 +1045,12 @@
 
     const fetchConfig = async () => {
         try {
-            const healthPayload = await requestOverWebSocket("health");
+            const healthPayload = await requestApi("GET", "/health");
             if (!healthPayload || healthPayload.status !== "ok") {
                 throw new Error("Health check failed");
             }
-            const payload = await requestOverWebSocket("config");
+            const configResponse = await requestApi("GET", "/config");
+            const payload = configResponse.payload || {};
             populateConfig(payload);
             updateBackendStatus("connected", "connected");
         } catch (error) {
@@ -1076,23 +1065,26 @@
         const backendUrl = setBackendUrl(backendUrlField.value);
         manualDisconnect = false;
         updateBackendStatus("", "connecting");
-        if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+        if (logStream) {
             manualDisconnect = true;
-            logSocket.close();
+            logStream.close();
+            logStream = null;
         }
-        connectWebSocket();
+        activeClientId = null;
+        connectEventStream();
         fetchConfig();
         appendLogLine("[client] Using backend " + backendUrl);
     };
 
     const disconnectBackend = () => {
         manualDisconnect = true;
-        if (logSocket && logSocket.readyState !== WebSocket.CLOSED) {
-            logSocket.close();
+        if (logStream) {
+            logStream.close();
         } else {
             manualDisconnect = false;
         }
-        logSocket = null;
+        logStream = null;
+        activeClientId = null;
         updateBackendStatus("", "disconnected");
         appendLogLine("[client] Disconnected from backend");
     };
@@ -1131,7 +1123,7 @@
         event.stopPropagation();
         clearLogs();
         persistStoredSelections();
-        sendFormOverWebSocket();
+        sendFormOverApi();
     };
 
     if (submitButton) {
@@ -1357,7 +1349,7 @@
     if (backendUrlField) {
         backendUrlField.value = initialBackend;
     }
-    connectWebSocket();
+    connectEventStream();
     fetchConfig();
 </script>
 </body>
