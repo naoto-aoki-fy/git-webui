@@ -90,7 +90,7 @@ Then open:
 
 - `http://localhost:8080/` (backend serving frontend)
 
-The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend SSE endpoint like `http://localhost:8080/events`.
+The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend base URL like `http://localhost:8080` (or a subpath base such as `https://host/path`).
 
 If you host frontend and backend on different domains, configure CORS on the backend with `CORS_ALLOW_ORIGIN`:
 
@@ -115,7 +115,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 
 ## Frontend notes
 
-- The backend endpoint is configured in the UI as a full URL including `/events` (SSE stream).
+- The backend endpoint is configured in the UI as a backend base URL. The frontend calls `${base}/events` for SSE and `${base}/submit`, `${base}/config`, `${base}/health` for HTTP.
 - Query/hash parameters are supported for pre-filling fields.
 - “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.

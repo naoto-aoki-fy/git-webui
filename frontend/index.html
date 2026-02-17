@@ -289,9 +289,9 @@
                 </div>
             </div>
             <div class="field-group">
-                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080/events">
+                <input type="text" id="backend_url" name="backend_url" placeholder="http://localhost:8080">
             </div>
-            <p class="subtle">Set the backend SSE endpoint as an absolute URL (including the /events path). Examples: http://localhost:8080/events, https://localhost:1443/events. This value is saved in your browser.</p>
+            <p class="subtle">Set the backend base URL as an absolute URL. Examples: http://localhost:8080, https://localhost:1443, https://host/path. The app uses this base to call /events, /submit, /config, etc. This value is saved in your browser.</p>
         </div>
         <button type="button" class="button" id="submit_button">Apply Patch &amp; Push</button>
     </form>
@@ -519,9 +519,12 @@
         scheduleDraftSave();
     };
 
-    const normalizeBackendUrl = (value) => {
-        const trimmed = value.trim();
-        return trimmed.replace(/\/+$/, "");
+    const normalizeBackendBaseUrl = (value) => {
+        const trimmed = value.trim().replace(/\/+$/, "");
+        if (trimmed.endsWith("/events")) {
+            return trimmed.slice(0, -"/events".length);
+        }
+        return trimmed;
     };
 
     const getQueryParams = () => {
@@ -537,24 +540,26 @@
     const { params: queryParams, source: querySource } = getQueryParams();
     const hasQueryParams = [...queryParams.keys()].length > 0;
 
-    const getDefaultBackendUrl = () => normalizeBackendUrl(window.location.origin + "/events");
+    const getDefaultBackendUrl = () => normalizeBackendBaseUrl(window.location.origin);
 
-    const getApiBaseUrl = () => {
-        const backendUrl = new URL(getBackendUrl());
-        return normalizeBackendUrl(backendUrl.origin + "/api");
+    const getBackendBaseUrl = () => {
+        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
+        return normalizeBackendBaseUrl(stored || getDefaultBackendUrl());
+    };
+
+    const getBackendEndpointUrl = (path) => {
+        const cleanedPath = path.startsWith("/") ? path : "/" + path;
+        return normalizeBackendBaseUrl(getBackendBaseUrl()) + cleanedPath;
     };
 
     const createClientId = () => (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
         ? crypto.randomUUID()
         : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
 
-    const getBackendUrl = () => {
-        const stored = window.localStorage.getItem(BACKEND_STORAGE_KEY);
-        return normalizeBackendUrl(stored || getDefaultBackendUrl());
-    };
+    const getBackendUrl = () => getBackendBaseUrl();
 
     const setBackendUrl = (value) => {
-        const normalized = normalizeBackendUrl(value || getDefaultBackendUrl());
+        const normalized = normalizeBackendBaseUrl(value || getDefaultBackendUrl());
         window.localStorage.setItem(BACKEND_STORAGE_KEY, normalized);
         if (backendUrlField) {
             backendUrlField.value = normalized;
@@ -592,7 +597,7 @@
         if (!activeClientId) {
             activeClientId = createClientId();
         }
-        const sseUrl = new URL(getBackendUrl());
+        const sseUrl = new URL(getBackendEndpointUrl("/events"));
         sseUrl.searchParams.set("client_id", activeClientId);
         logStream = new EventSource(sseUrl.toString());
         logStream.addEventListener("open", () => {
@@ -619,7 +624,7 @@
     };
 
     const requestApi = async (method, path, payload = null) => {
-        const response = await fetch(getApiBaseUrl() + path, {
+        const response = await fetch(getBackendEndpointUrl(path), {
             method,
             headers: { "Content-Type": "application/json" },
             body: payload ? JSON.stringify(payload) : undefined,
@@ -783,15 +788,33 @@
         logStream.addEventListener("open", () => resolve(), { once: true });
     });
 
+    const getSubmitPathForMode = (branchMode) => {
+        if (branchMode === "from_commit") {
+            return "/submit/from_commit";
+        }
+        if (branchMode === "orphan") {
+            return "/submit/orphan";
+        }
+        if (branchMode === "revert_to_commit") {
+            return "/submit/revert_to_commit";
+        }
+        if (branchMode === "merge_branches") {
+            return "/submit/merge_branches";
+        }
+        return "/submit";
+    };
+
     const sendFormOverApi = async () => {
         await ensureEventStreamReady();
         const payload = Object.fromEntries(new FormData(form).entries());
+        const branchMode = payload.branch_mode || "default";
+        delete payload.branch_mode;
         if (logStream && logStream.readyState === EventSource.OPEN && activeClientId) {
             updateLogStatus(null);
             if (logOutput) {
                 logOutput.textContent = "";
             }
-            await requestApi("POST", "/submit", { payload, client_id: activeClientId });
+            await requestApi("POST", getSubmitPathForMode(branchMode), { payload, client_id: activeClientId });
         } else {
             appendLogLine("[client] SSE connection not ready.");
             updateLogStatus(false);
@@ -1324,7 +1347,7 @@
         if (backendUrlField && !backendUrlField.value.trim()) {
             const storedBackend = window.localStorage.getItem(BACKEND_STORAGE_KEY);
             const draftBackend = typeof savedDraft.backend_url === "string" ? savedDraft.backend_url : "";
-            backendUrlField.value = normalizeBackendUrl(storedBackend || draftBackend || getDefaultBackendUrl());
+            backendUrlField.value = normalizeBackendBaseUrl(storedBackend || draftBackend || getDefaultBackendUrl());
         }
         updateChatGPTLink();
         togglePatchRequired();

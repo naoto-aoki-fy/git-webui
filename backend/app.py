@@ -19,7 +19,6 @@ import traceback
 from aiohttp import web
 
 SSE_PATH = "/events"
-API_PREFIX = "/api"
 
 DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
@@ -1182,14 +1181,20 @@ async def _emit_to_client(app: web.Application, client_id: str, message: Dict[st
     await queue.put(message)
 
 
-async def submit_handler(request: web.Request) -> web.Response:
+async def _read_json_payload(request: web.Request) -> Dict[str, object]:
     try:
         payload = await request.json()
     except json.JSONDecodeError:
         raise web.HTTPBadRequest(text="Invalid JSON payload")
-
     if not isinstance(payload, dict):
         raise web.HTTPBadRequest(text="Invalid JSON payload")
+    return payload
+
+
+async def submit_handler(request: web.Request) -> web.Response:
+    payload = request.get("forced_payload")
+    if payload is None:
+        payload = await _read_json_payload(request)
     form_data = payload.get("payload", {})
     client_id = str(payload.get("client_id", "")).strip()
     if not isinstance(form_data, dict):
@@ -1201,6 +1206,47 @@ async def submit_handler(request: web.Request) -> web.Response:
     result = await process_submission(_normalize_form_payload(form_data), logs)
     await _emit_to_client(request.app, client_id, {"type": "complete", "success": result["success"]})
     return web.json_response({"accepted": True})
+
+
+def _with_branch_mode(payload: Dict[str, object], branch_mode: str) -> Dict[str, object]:
+    merged = dict(payload)
+    form_payload = merged.get("payload", {})
+    if not isinstance(form_payload, dict):
+        raise web.HTTPBadRequest(text="Invalid form payload")
+    normalized_payload = dict(form_payload)
+    normalized_payload["branch_mode"] = branch_mode
+    merged["payload"] = normalized_payload
+    return merged
+
+
+async def submit_default_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "default")
+    return await submit_handler(request)
+
+
+async def submit_from_commit_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "from_commit")
+    return await submit_handler(request)
+
+
+async def submit_orphan_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "orphan")
+    return await submit_handler(request)
+
+
+async def submit_revert_to_commit_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "revert_to_commit")
+    return await submit_handler(request)
+
+
+async def submit_merge_branches_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "merge_branches")
+    return await submit_handler(request)
 
 
 async def config_handler(_: web.Request) -> web.Response:
@@ -1220,9 +1266,13 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app["sse_clients"] = {}
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
-    app.router.add_route("POST", f"{API_PREFIX}/submit", submit_handler)
-    app.router.add_route("GET", f"{API_PREFIX}/config", config_handler)
-    app.router.add_route("GET", f"{API_PREFIX}/health", health_handler)
+    app.router.add_route("POST", "/submit", submit_default_handler)
+    app.router.add_route("POST", "/submit/from_commit", submit_from_commit_handler)
+    app.router.add_route("POST", "/submit/orphan", submit_orphan_handler)
+    app.router.add_route("POST", "/submit/revert_to_commit", submit_revert_to_commit_handler)
+    app.router.add_route("POST", "/submit/merge_branches", submit_merge_branches_handler)
+    app.router.add_route("GET", "/config", config_handler)
+    app.router.add_route("GET", "/health", health_handler)
     if serve_frontend:
         frontend_root = _frontend_root()
         if not frontend_root.exists():
