@@ -850,34 +850,23 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError(f"Branch '{branch}' does not exist on origin")
                 if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{new_branch}", env, logs):
                     raise RuntimeError(f"Branch '{new_branch}' does not exist on origin")
-                _log_debug(logs, f"Checking out branch '{branch}' from origin for merge mode.")
-                checkout_result = await run_git_command(
-                    "switch",
-                    "-C",
-                    branch,
+                _log_debug(logs, f"Checking whether '{branch}' can be fast-forwarded to '{new_branch}'.")
+                ff_check_result = await run_git_command(
+                    "merge-base",
+                    "--is-ancestor",
                     f"origin/{branch}",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if checkout_result.returncode != 0:
-                    raise RuntimeError("Failed to checkout branch A for merge mode")
-                _log_debug(logs, f"Merging branch '{new_branch}' into '{branch}'.")
-                merge_result = await run_git_command(
-                    "merge",
-                    "--ff-only",
                     f"origin/{new_branch}",
                     cwd=repo_dir,
                     env=env,
                     log=logs,
                 )
-                if merge_result.returncode != 0:
-                    raise RuntimeError("git merge failed (possibly due to conflicts)")
-                _log_debug(logs, f"Pushing merged branch '{branch}' to origin.")
+                if ff_check_result.returncode != 0:
+                    raise RuntimeError("Fast-forward merge is not possible (branch A is not an ancestor of branch B)")
+                _log_debug(logs, f"Fast-forward updating '{branch}' to '{new_branch}' on origin.")
                 push_result = await run_git_command(
                     "push",
                     "origin",
-                    branch,
+                    f"refs/remotes/origin/{new_branch}:refs/heads/{branch}",
                     cwd=repo_dir,
                     env=env,
                     log=logs,
@@ -896,6 +885,19 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 )
                 if delete_remote_result.returncode != 0:
                     raise RuntimeError("Failed to delete source branch on origin")
+                _log_debug(logs, f"Verifying source branch '{new_branch}' was deleted from origin.")
+                verify_delete_remote_result = await run_git_command(
+                    "ls-remote",
+                    "--exit-code",
+                    "--heads",
+                    "origin",
+                    new_branch,
+                    cwd=repo_dir,
+                    env=env,
+                    log=logs,
+                )
+                if verify_delete_remote_result.returncode == 0:
+                    raise RuntimeError("Source branch still exists on origin after delete attempt")
                 if await _git_ref_exists(repo_dir, f"refs/heads/{new_branch}", env, logs):
                     _log_debug(logs, f"Deleting merged source branch '{new_branch}' locally.")
                     delete_local_result = await run_git_command(
