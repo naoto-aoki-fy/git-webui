@@ -138,6 +138,14 @@
             background: #fed7d7;
             color: #742a2a;
         }
+        .cjk-indicator {
+            font-size: 0.8rem;
+            padding: 0.2rem 0.55rem;
+            border-radius: 999px;
+            background: #feebc8;
+            color: #7b341e;
+            white-space: nowrap;
+        }
         .modal {
             position: fixed;
             inset: 0;
@@ -268,9 +276,12 @@
         <div id="patch_group">
             <div class="field-header">
                 <label for="patch">Patch (applied with git apply --3way -v)</label>
-                <button type="button" class="button secondary" id="paste_patch" data-paste-target="patch">
-                    Paste from clipboard
-                </button>
+                <div class="field-header-actions">
+                    <span id="patch_cjk_indicator" class="cjk-indicator hidden">CJK detected</span>
+                    <button type="button" class="button secondary" id="paste_patch" data-paste-target="patch">
+                        Paste from clipboard
+                    </button>
+                </div>
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/..."></textarea>
         </div>
@@ -339,6 +350,7 @@
     const openRepositoryButton = document.getElementById("open_repository");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
+    const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
     const openChatGPTButton = document.getElementById("open_chatgpt");
     const isClipboardPasteAvailable =
         typeof navigator !== "undefined" &&
@@ -359,6 +371,14 @@
         }
         copyPatchButton.dataset.copied = copied ? "true" : "false";
         copyPatchButton.textContent = copied ? copyPatchBaseLabel + " ✅" : copyPatchBaseLabel;
+    };
+    const cjkCharacterPattern = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+    const updatePatchCjkIndicator = () => {
+        if (!patchField || !patchCjkIndicator) {
+            return;
+        }
+        const hasCjk = cjkCharacterPattern.test(patchField.value);
+        patchCjkIndicator.classList.toggle("hidden", !hasCjk);
     };
     const toggleCommitMessageHelpers = () => {
         const shouldHide = allowEmptyCommit.checked;
@@ -1174,6 +1194,7 @@
             scheduleDraftSave();
             if (target === patchField) {
                 clearCopyPatchIndicatorIfPatchChanged();
+                updatePatchCjkIndicator();
             }
             if (target === patchField || target === prMessageField) {
                 updateChatGPTLink();
@@ -1311,6 +1332,7 @@
         if (queryParams.has("patch")) {
             const patchParam = queryParams.get("patch") || "";
             patchField.value = patchParam;
+            updatePatchCjkIndicator();
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
@@ -1361,7 +1383,9 @@
     if (patchField) {
         patchField.addEventListener("input", clearCopyPatchIndicatorIfPatchChanged);
         patchField.addEventListener("input", updateChatGPTLink);
+        patchField.addEventListener("input", updatePatchCjkIndicator);
     }
+    updatePatchCjkIndicator();
     if (prMessageField) {
         prMessageField.addEventListener("input", updateChatGPTLink);
     }
