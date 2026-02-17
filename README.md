@@ -92,6 +92,16 @@ Then open:
 
 The frontend can also be hosted separately (for example via GitHub Pages) and pointed at a backend SSE endpoint like `http://localhost:8080/events`.
 
+If you host frontend and backend on different domains, configure CORS on the backend with `CORS_ALLOW_ORIGIN`:
+
+```bash
+CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python backend/app.py --config config.toml --repo-root repos --bind 0.0.0.0 --port 8080
+```
+
+- Use `*` (default) to allow any origin (i.e. arbitrary domains).
+- Use a comma-separated list to allow specific frontend origins.
+- Requests from non-allowed origins are rejected at CORS preflight (`OPTIONS`) with HTTP 403.
+
 ## Backend CLI options
 
 `backend/app.py` currently supports:

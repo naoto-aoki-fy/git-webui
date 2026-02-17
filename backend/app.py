@@ -55,23 +55,32 @@ def _load_config(config_path: Path) -> Dict[str, object]:
 APP_CONFIG = {"ssh_keys": [], "git_users": []}
 
 
-def _resolve_cors_allow_origin() -> str:
-    return os.environ.get("CORS_ALLOW_ORIGIN", "*").strip() or "*"
+def _resolve_cors_allow_origin() -> List[str]:
+    raw_value = os.environ.get("CORS_ALLOW_ORIGIN", "*").strip()
+    if not raw_value:
+        return ["*"]
+    return [origin.strip() for origin in raw_value.split(",") if origin.strip()] or ["*"]
 
 
 def _build_cors_headers(request: web.Request) -> Dict[str, str]:
     allowed = _resolve_cors_allow_origin()
     origin = request.headers.get("Origin", "")
 
-    if allowed == "*":
-        allow_origin = "*"
-    else:
-        allow_origin = origin if origin and origin == allowed else allowed
+    if not origin:
+        return {}
 
+    if "*" in allowed:
+        allow_origin = "*"
+    elif origin in allowed:
+        allow_origin = origin
+    else:
+        return {}
+
+    requested_headers = request.headers.get("Access-Control-Request-Headers", "")
     headers = {
         "Access-Control-Allow-Origin": allow_origin,
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": requested_headers or "Content-Type",
     }
     if allow_origin != "*":
         headers["Vary"] = "Origin"
@@ -80,11 +89,16 @@ def _build_cors_headers(request: web.Request) -> Dict[str, str]:
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]) -> web.StreamResponse:
+    cors_headers = _build_cors_headers(request)
+
     if request.method == "OPTIONS":
-        return web.Response(status=204, headers=_build_cors_headers(request))
+        if request.headers.get("Origin", "") and not cors_headers:
+            return web.Response(status=403, text="CORS origin denied")
+        return web.Response(status=204, headers=cors_headers)
 
     response = await handler(request)
-    response.headers.update(_build_cors_headers(request))
+    if cors_headers:
+        response.headers.update(cors_headers)
     return response
 
 
