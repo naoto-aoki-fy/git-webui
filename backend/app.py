@@ -1140,13 +1140,16 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
     if not client_id:
         raise web.HTTPBadRequest(text="client_id query parameter is required")
 
+    sse_headers = {
+        **_build_cors_headers(request),
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+    }
+
     stream = web.StreamResponse(
         status=200,
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        },
+        headers=sse_headers,
     )
     await stream.prepare(request)
 
