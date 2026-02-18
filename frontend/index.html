@@ -1164,10 +1164,29 @@
     const handleSubmit = (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (
+            commitMessageField &&
+            !commitMessageField.hasAttribute("disabled") &&
+            !commitMessageField.value.trim()
+        ) {
+            commitMessageField.setCustomValidity("Commit message is required.");
+            commitMessageField.reportValidity();
+            commitMessageField.focus();
+            return;
+        }
+        if (commitMessageField) {
+            commitMessageField.setCustomValidity("");
+        }
         clearLogs();
         persistStoredSelections();
         sendFormOverApi();
     };
+
+    if (commitMessageField) {
+        commitMessageField.addEventListener("input", () => {
+            commitMessageField.setCustomValidity("");
+        });
+    }
 
     if (submitButton) {
         submitButton.addEventListener("click", handleSubmit);
