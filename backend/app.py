@@ -1038,10 +1038,16 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped("Patch written to temporary file."))
                 _log_debug(logs, f"Patch file saved to {patch_path}.")
 
-                _log_debug(logs, "Applying patch with git apply --3way -v.")
+                _log_debug(
+                    logs,
+                    "Applying patch with git apply --3way --inaccurate-eof --ignore-space-change --whitespace=fix -v.",
+                )
                 apply_result = await run_git_command(
                     "apply",
                     "--3way",
+                    "--inaccurate-eof",
+                    "--ignore-space-change",
+                    "--whitespace=fix",
                     "-v",
                     str(patch_path),
                     cwd=repo_dir,
