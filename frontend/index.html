@@ -4,25 +4,56 @@
     <meta charset="utf-8">
     <title>git apply web ui</title>
     <style>
+        :root {
+            color-scheme: light;
+            --bg-body: #f5f5f5;
+            --text-body: #222;
+            --bg-main: #fff;
+            --shadow-main: 0 4px 18px rgba(0,0,0,0.1);
+            --border-color: #ccc;
+            --bg-input: #fafafa;
+            --bg-secondary-button: #4a5568;
+            --bg-secondary-button-hover: #2d3748;
+            --text-subtle: #4a5568;
+            --bg-status-pill: #e2e8f0;
+            --text-status-pill: #2d3748;
+            --bg-modal: #fff;
+            --shadow-modal: 0 20px 40px rgba(0, 0, 0, 0.25);
+        }
+        body[data-theme="dark"] {
+            color-scheme: dark;
+            --bg-body: #111827;
+            --text-body: #e5e7eb;
+            --bg-main: #1f2937;
+            --shadow-main: 0 4px 18px rgba(0,0,0,0.4);
+            --border-color: #4b5563;
+            --bg-input: #374151;
+            --bg-secondary-button: #6b7280;
+            --bg-secondary-button-hover: #4b5563;
+            --text-subtle: #cbd5e1;
+            --bg-status-pill: #334155;
+            --text-status-pill: #e2e8f0;
+            --bg-modal: #1f2937;
+            --shadow-modal: 0 20px 40px rgba(0, 0, 0, 0.45);
+        }
         body {
             font-family: system-ui, sans-serif;
             margin: 2rem;
-            background: #f5f5f5;
-            color: #222;
+            background: var(--bg-body);
+            color: var(--text-body);
         }
         main {
             max-width: 960px;
             margin: 0 auto;
-            background: #fff;
+            background: var(--bg-main);
             padding: 2rem;
             border-radius: 12px;
-            box-shadow: 0 4px 18px rgba(0,0,0,0.1);
+            box-shadow: var(--shadow-main);
         }
         form {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 1.5rem;
-        }
+            gap: 1.5rem;        }
         label {
             font-weight: 600;
             display: block;
@@ -32,16 +63,16 @@
             width: 100%;
             box-sizing: border-box;
             padding: 0.75rem;
-            border: 1px solid #ccc;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             font-family: monospace;
-            background: #fafafa;
+            background: var(--bg-input);
+            color: var(--text-body);
         }
         textarea {
             min-height: 220px;
         }
-        .button {
-            padding: 0.75rem 1.5rem;
+        .button {            padding: 0.75rem 1.5rem;
             background: #2b6cb0;
             color: #fff;
             border: none;
@@ -53,18 +84,17 @@
             background: #2c5282;
         }
         .button.secondary {
-            background: #4a5568;
+            background: var(--bg-secondary-button);
             font-size: 0.9rem;
             padding: 0.5rem 1rem;
         }
         .button.secondary:hover {
-            background: #2d3748;
+            background: var(--bg-secondary-button-hover);
         }
         .button:disabled {
             cursor: not-allowed;
             opacity: 0.6;
-        }
-        a.button,
+        }        a.button,
         a.button:hover,
         a.button:visited,
         a.button:active {
@@ -103,13 +133,12 @@
             margin-bottom: 0;
         }
         .subtle {
-            color: #4a5568;
+            color: var(--text-subtle);
             font-size: 0.9rem;
         }
         .hidden {
             display: none;
-        }
-        .field-header {
+        }        .field-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -127,14 +156,13 @@
             padding: 0.25rem 0.6rem;
             border-radius: 999px;
             font-size: 0.8rem;
-            background: #e2e8f0;
-            color: #2d3748;
+            background: var(--bg-status-pill);
+            color: var(--text-status-pill);
         }
         .status-pill.connected {
             background: #c6f6d5;
             color: #22543d;
-        }
-        .status-pill.error {
+        }        .status-pill.error {
             background: #fed7d7;
             color: #742a2a;
         }
@@ -160,19 +188,18 @@
             display: none;
         }
         .modal-content {
-            background: #fff;
+            background: var(--bg-modal);
             border-radius: 16px;
             padding: 1.5rem 2rem;
             max-width: 420px;
             width: 100%;
             text-align: center;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+            box-shadow: var(--shadow-modal);
         }
         .modal-content.success {
             border-top: 6px solid #48bb78;
         }
-        .modal-content.failure {
-            border-top: 6px solid #f56565;
+        .modal-content.failure {            border-top: 6px solid #f56565;
         }
         .modal-actions {
             margin-top: 1.5rem;
@@ -188,12 +215,20 @@
 <main>
     <h1>git apply --3way Web UI</h1>
     <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
+    <div class="field-group" style="margin-bottom: 1.5rem;">
+        <div>
+            <label for="theme_mode">Theme</label>
+            <select id="theme_mode" name="theme_mode">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+            </select>
+        </div>
+    </div>
     <form method="post" action="/" id="apply_form" novalidate>
         <div>
             <div class="field-header">
                 <label for="repository_url">Repository URL (SSH recommended)</label>
-                <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
-            </div>
+                <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>            </div>
             <div class="field-group">
                 <input type="text" id="repository_url" name="repository_url" required list="repository_history">
             </div>
@@ -408,6 +443,7 @@
     const backendApplyButton = document.getElementById("backend_apply");
     const backendDisconnectButton = document.getElementById("backend_disconnect");
     const backendStatus = document.getElementById("backend_status");
+    const themeModeField = document.getElementById("theme_mode");
     const resultModal = document.getElementById("result_modal");
     const resultTitle = document.getElementById("result_title");
     const resultMessage = document.getElementById("result_message");
@@ -417,6 +453,7 @@
     const BRANCH_STORAGE_KEY = "git-webui.branches";
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
     const DRAFT_STORAGE_KEY = "git-webui.draft";
+    const THEME_STORAGE_KEY = "git-webui.theme";
     const MAX_STORED_VALUES = 10;
     let logStream = null;
     let activeClientId = null;
@@ -425,12 +462,25 @@
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
+
+    const applyTheme = (mode) => {
+        const theme = mode === "dark" ? "dark" : "light";
+        document.body.setAttribute("data-theme", theme);
+        if (themeModeField) {
+            themeModeField.value = theme;
+        }
+    };
+
+    const setTheme = (mode) => {
+        const theme = mode === "dark" ? "dark" : "light";
+        window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+        applyTheme(theme);
+    };
     
 
     const parseGitHubRepository = (value) => {
         if (!value || typeof value !== "string") {
-            return null;
-        }
+            return null;        }
         const trimmed = value.trim();
         const match = trimmed.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
         if (!match) {
@@ -1367,12 +1417,16 @@
     if (backendDisconnectButton) {
         backendDisconnectButton.addEventListener("click", disconnectBackend);
     }
+    if (themeModeField) {
+        themeModeField.addEventListener("change", () => {
+            setTheme(themeModeField.value);
+        });
+    }
 
     if (resultCloseButton) {
         resultCloseButton.addEventListener("click", hideResultModal);
     }
-    if (resultModal) {
-        resultModal.addEventListener("click", (event) => {
+    if (resultModal) {        resultModal.addEventListener("click", (event) => {
             if (event.target === resultModal) {
                 hideResultModal();
             }
@@ -1380,12 +1434,12 @@
     }
 
     const initializeForm = async () => {
+        applyTheme(window.localStorage.getItem(THEME_STORAGE_KEY) || "light");
         const savedDraft = readDraft();
         if (!hasQueryParams) {
             applyDraft(savedDraft);
         }
-        await prefillFromQueryParams();
-        if (backendUrlField && !backendUrlField.value.trim()) {
+        await prefillFromQueryParams();        if (backendUrlField && !backendUrlField.value.trim()) {
             const storedBackend = window.localStorage.getItem(BACKEND_STORAGE_KEY);
             const draftBackend = typeof savedDraft.backend_url === "string" ? savedDraft.backend_url : "";
             backendUrlField.value = normalizeBackendBaseUrl(storedBackend || draftBackend || getDefaultBackendUrl());
