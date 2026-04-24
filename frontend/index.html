@@ -1284,7 +1284,11 @@
         }
     };
 
-    const patchCopyPrompt = 'You are a professional commit message generator. Based on the changes described after “---- Changes ----”, propose 2–5 English Git commit message candidates.\n\nOutput requirements:\n\n* It is preferable to follow the Conventional Commits format.\n* The body be a bulleted list (-) with about 0–5 lines.\n* Please output each commit message inside a code block.\n* Differentiate each candidate so that expressions and level of detail (short / standard / more detailed) do not overlap.\n\nEvaluation requirements:\n\n* Immediately after each candidate, always include (in English) a “Recommended adoption level” (⭐⭐⭐☆☆) and a “Reason” (English, 1–3 sentences).\n* In the reason, include perspectives on coverage of the changes, clarity, conformity to Conventional Commits, and future searchability (appropriateness of scope/type).\n\n---- Changes ----\n\n\n';
+    const langCode = navigator.language;
+    const display = new Intl.DisplayNames(["en"], { type: "language" });
+    const languageName = display.of(langCode) || "English";
+
+    const patchCopyPrompt = `You are a professional commit message generator. Based on the changes described after “---- Changes ----”, propose 2–5 ${languageName} Git commit message candidates.\n\nOutput requirements:\n\n* It is preferable to follow the Conventional Commits format.\n* The body be a bulleted list (-) with about 0–5 lines.\n* Please output each commit message inside a code block.\n* Differentiate each candidate so that expressions and level of detail (short / standard / more detailed) do not overlap.\n\nEvaluation requirements:\n\n* Immediately after each candidate, always include (in ${languageName}) a “Recommended adoption level” (⭐⭐⭐☆☆) and a “Reason” (${languageName}, 1–3 sentences).\n* In the reason, include perspectives on coverage of the changes, clarity, conformity to Conventional Commits, and future searchability (appropriateness of scope/type).\n\n---- Changes ----\n\n\n`;
     const buildGeneratedAtComment = () => {
         return "<!-- ignore this: generated at " + new Date().toISOString() + " -->";
     };
