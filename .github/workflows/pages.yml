@@ -81,7 +81,7 @@ jobs:
             }
 
             const bookmarkletUrl = JSON.stringify(
-              'javascript:' + minified.code.replaceAll('%', '%25').replaceAll('"', '%22')
+              'javascript:' + minified.code.replaceAll('%', '%25').replaceAll('"', '%22').replaceAll("\\", "%5C")
             );
 
             const html = fs.readFileSync(htmlPath, 'utf8');
