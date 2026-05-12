@@ -40,11 +40,14 @@ jobs:
       - name: Initial upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: prebuild-pages
           path: frontend
 
       - name: Initial deploy to resolve page URL
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: prebuild-pages
 
       - name: Build bookmarklet URL and inject into frontend
         env:
