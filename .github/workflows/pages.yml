@@ -3,9 +3,9 @@ name: Deploy GitHub Pages (frontend)
 on:
   push:
     branches: ["main"]
-    # Deploy only when changes occur in frontend/ (skip condition)
     paths:
       - "frontend/**"
+      - "bookmarklet/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -23,18 +23,77 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.final_deployment.outputs.page_url }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Upload frontend/ as-is as the Pages site artifact
-      - name: Upload artifact
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install terser
+        run: npm install terser
+
+      - name: Initial upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: frontend
 
-      - name: Deploy to GitHub Pages
+      - name: Initial deploy to resolve page URL
         id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Build bookmarklet URL and inject into frontend
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const terser = require('terser');
+
+          (async () => {
+            const pageUrl = process.env.PAGE_URL;
+            if (!pageUrl) {
+              throw new Error('PAGE_URL is empty');
+            }
+
+            const codexJsPath = 'bookmarklet/codex.js';
+            const htmlPath = 'frontend/index.html';
+
+            const codexJs = fs.readFileSync(codexJsPath, 'utf8');
+            const baseUrlPattern = /const baseUrl\s*=\s*"[^"]*";/;
+            const baseUrlReplacement = `const baseUrl = ${JSON.stringify(pageUrl)};`;
+            const codexJsWithBaseUrl = codexJs.replace(baseUrlPattern, baseUrlReplacement);
+
+            const minified = await terser.minify(codexJsWithBaseUrl, {
+              compress: { inline: false, sequences: false, join_vars: false },
+              mangle: false,
+            });
+
+            if (!minified.code) {
+              throw new Error('Terser returned empty output');
+            }
+
+            const bookmarkletUrl = JSON.stringify(
+              'javascript:' + minified.code.replaceAll('%', '%25').replaceAll('"', '%22')
+            );
+
+            const html = fs.readFileSync(htmlPath, 'utf8');
+            fs.writeFileSync(htmlPath, html.replaceAll('CODEX_BOOKMARKLET_URL', bookmarkletUrl));
+          })().catch((err) => {
+            console.error(err);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Final upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+
+      - name: Final deploy to GitHub Pages
+        id: final_deployment
         uses: actions/deploy-pages@v4
