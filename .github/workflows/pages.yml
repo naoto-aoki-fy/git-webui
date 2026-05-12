@@ -67,9 +67,7 @@ jobs:
             const htmlPath = 'frontend/index.html';
 
             const codexJs = fs.readFileSync(codexJsPath, 'utf8');
-            const baseUrlPattern = /const baseUrl\s*=\s*"[^"]*";/;
-            const baseUrlReplacement = `const baseUrl = ${JSON.stringify(pageUrl)};`;
-            const codexJsWithBaseUrl = codexJs.replace(baseUrlPattern, baseUrlReplacement);
+            const codexJsWithBaseUrl = codexJs.replaceAll("__BASE_URL__", JSON.stringify(pageUrl));
 
             const minified = await terser.minify(codexJsWithBaseUrl, {
               compress: { inline: false, sequences: false, join_vars: false },
@@ -80,12 +78,10 @@ jobs:
               throw new Error('Terser returned empty output');
             }
 
-            const bookmarkletUrl = JSON.stringify(
-              'javascript:' + minified.code.replaceAll('%', '%25').replaceAll('"', '%22').replaceAll("\\", "%5C")
-            );
+            const bookmarkletUrl = 'javascript:' + minified.code.replaceAll('%', '%25').replaceAll('"', '%22').replaceAll("\\", "%5C");
 
             const html = fs.readFileSync(htmlPath, 'utf8');
-            fs.writeFileSync(htmlPath, html.replaceAll('CODEX_BOOKMARKLET_URL', bookmarkletUrl));
+            fs.writeFileSync(htmlPath, html.replaceAll('__CODEX_BOOKMARKLET_URL__', JSON.stringify(bookmarkletUrl)));
           })().catch((err) => {
             console.error(err);
             process.exit(1);

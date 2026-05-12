@@ -36,7 +36,7 @@
     return dfs(obj, []);
   }
 
-  const baseUrl = "https://naoto-aoki-fy.github.io/git-webui/";
+  const baseUrl = __BASE_URL__;
   const taskId = location.pathname.split("/").filter(Boolean).pop();
 
   function buildTurnMdListMarkdown(turnsInfo) {
