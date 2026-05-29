@@ -480,6 +480,7 @@
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
+    let isSubmitting = false;
     const systemThemeMediaQuery =
         typeof window !== "undefined" && typeof window.matchMedia === "function"
             ? window.matchMedia("(prefers-color-scheme: dark)")
@@ -577,6 +578,17 @@
         }
     };
 
+    const setProcessingState = (processing) => {
+        isSubmitting = processing;
+        document.querySelectorAll("main input, main textarea, main select, main button").forEach((control) => {
+            control.disabled = processing;
+        });
+        if (!processing) {
+            togglePatchRequired();
+            toggleCommitField();
+        }
+    };
+
     const showResultModal = (success, message) => {
         if (!resultModal || !resultTitle || !resultMessage) {
             return;
@@ -671,6 +683,7 @@
         }
         if (payload.type === "complete") {
             updateLogStatus(payload.success);
+            setProcessingState(false);
             if (payload.success) {
                 clearProcessingFields();
             }
@@ -684,6 +697,7 @@
         if (payload.type === "error") {
             appendLogLine(payload.message);
             updateLogStatus(false);
+            setProcessingState(false);
             showResultModal(false, payload.message || "The request failed. Review the logs for details.");
         }
     };
@@ -902,20 +916,21 @@
         return "/submit";
     };
 
-    const sendFormOverApi = async () => {
+    const sendFormOverApi = async (payload, branchMode) => {
         await ensureEventStreamReady();
-        const payload = Object.fromEntries(new FormData(form).entries());
-        const branchMode = payload.branch_mode || "default";
-        delete payload.branch_mode;
         if (logStream && logStream.readyState === EventSource.OPEN && activeClientId) {
             updateLogStatus(null);
             if (logOutput) {
                 logOutput.textContent = "";
             }
             await requestApi("POST", getSubmitPathForMode(branchMode), { payload, client_id: activeClientId });
+            if (isSubmitting) {
+                setProcessingState(false);
+            }
         } else {
             appendLogLine("[client] SSE connection not ready.");
             updateLogStatus(false);
+            setProcessingState(false);
         }
     };
 
@@ -1242,6 +1257,9 @@
     const handleSubmit = (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (isSubmitting) {
+            return;
+        }
         if (
             commitMessageField &&
             !commitMessageField.hasAttribute("disabled") &&
@@ -1255,9 +1273,19 @@
         if (commitMessageField) {
             commitMessageField.setCustomValidity("");
         }
+        const payload = Object.fromEntries(new FormData(form).entries());
+        const branchMode = payload.branch_mode || "default";
+        delete payload.branch_mode;
         clearLogs();
         persistStoredSelections();
-        sendFormOverApi();
+        setProcessingState(true);
+        sendFormOverApi(payload, branchMode).catch((error) => {
+            console.error("Failed to submit form", error);
+            appendLogLine("[client] " + (error.message || "Failed to submit form."));
+            updateLogStatus(false);
+            setProcessingState(false);
+            showResultModal(false, "The request could not be submitted. Review the logs for details.");
+        });
     };
 
     if (commitMessageField) {
