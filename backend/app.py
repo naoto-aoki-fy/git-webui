@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -13,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Set
 import traceback
 
 from aiohttp import web
@@ -99,6 +101,205 @@ async def cors_middleware(request: web.Request, handler: Callable[[web.Request],
     if cors_headers:
         response.headers.update(cors_headers)
     return response
+
+
+
+
+@dataclass
+class LineEndingSnapshot:
+    path: Path
+    line_ending: str
+    is_text: bool
+
+
+def _normalize_bytes_to_lf(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def _detect_line_ending(data: bytes) -> str:
+    if not data:
+        return "none"
+    crlf_count = data.count(b"\r\n")
+    without_crlf = data.replace(b"\r\n", b"")
+    lf_count = without_crlf.count(b"\n")
+    cr_count = without_crlf.count(b"\r")
+    if crlf_count and not lf_count and not cr_count:
+        return "crlf"
+    if lf_count and not crlf_count and not cr_count:
+        return "lf"
+    if cr_count and not crlf_count and not lf_count:
+        return "cr"
+    if crlf_count or lf_count or cr_count:
+        return "mixed"
+    return "none"
+
+
+def _parse_patch_path_token(token: str) -> str:
+    if token in {"/dev/null", "NUL"}:
+        return ""
+    if token.startswith("a/") or token.startswith("b/"):
+        return token[2:]
+    return token
+
+
+def _parse_patch_file_header_path(line: str) -> str:
+    value = line[4:].strip()
+    if not value:
+        return ""
+    if value == "/dev/null":
+        return ""
+    if value.startswith('"'):
+        try:
+            parts = shlex.split(value)
+        except ValueError:
+            return ""
+        return _parse_patch_path_token(parts[0]) if parts else ""
+    return _parse_patch_path_token(value.split("\t", 1)[0].split(" ", 1)[0])
+
+
+def _patch_referenced_paths(patch_content: str) -> Set[str]:
+    paths: Set[str] = set()
+    for line in patch_content.splitlines():
+        if line.startswith("diff --git "):
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                continue
+            if len(parts) >= 4:
+                for token in parts[2:4]:
+                    parsed = _parse_patch_path_token(token)
+                    if parsed:
+                        paths.add(parsed)
+        elif line.startswith("--- ") or line.startswith("+++ "):
+            parsed = _parse_patch_file_header_path(line)
+            if parsed:
+                paths.add(parsed)
+    return paths
+
+
+def _safe_repo_file_path(repo_dir: Path, relative_path: str) -> Optional[Path]:
+    candidate = Path(relative_path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    resolved_repo = repo_dir.resolve()
+    resolved_candidate = (repo_dir / candidate).resolve()
+    try:
+        resolved_candidate.relative_to(resolved_repo)
+    except ValueError:
+        return None
+    return resolved_candidate
+
+
+def _line_ending_snapshots(repo_dir: Path, patch_content: str) -> List[LineEndingSnapshot]:
+    snapshots: List[LineEndingSnapshot] = []
+    seen_paths: Set[Path] = set()
+    for relative_path in sorted(_patch_referenced_paths(patch_content)):
+        file_path = _safe_repo_file_path(repo_dir, relative_path)
+        if file_path is None or file_path in seen_paths or not file_path.is_file():
+            continue
+        seen_paths.add(file_path)
+        data = file_path.read_bytes()
+        snapshots.append(
+            LineEndingSnapshot(
+                path=file_path,
+                line_ending=_detect_line_ending(data),
+                is_text=b"\0" not in data,
+            )
+        )
+    return snapshots
+
+
+def _normalize_files_to_lf(snapshots: List[LineEndingSnapshot]) -> List[LineEndingSnapshot]:
+    normalized: List[LineEndingSnapshot] = []
+    for snapshot in snapshots:
+        if not snapshot.is_text or not snapshot.path.exists():
+            continue
+        original = snapshot.path.read_bytes()
+        converted = _normalize_bytes_to_lf(original)
+        if converted != original:
+            snapshot.path.write_bytes(converted)
+        normalized.append(snapshot)
+    return normalized
+
+
+def _restore_original_line_endings(snapshots: List[LineEndingSnapshot]) -> None:
+    for snapshot in snapshots:
+        if not snapshot.is_text or not snapshot.path.exists():
+            continue
+        if snapshot.line_ending not in {"crlf", "cr", "mixed"}:
+            continue
+        lf_data = _normalize_bytes_to_lf(snapshot.path.read_bytes())
+        if snapshot.line_ending == "cr":
+            restored = lf_data.replace(b"\n", b"\r")
+        else:
+            restored = lf_data.replace(b"\n", b"\r\n")
+        snapshot.path.write_bytes(restored)
+
+
+async def _apply_patch_with_line_ending_retry(
+    repo_dir: Path,
+    patch_path: Path,
+    patch_content: str,
+    env: Dict[str, str],
+    logs: LogSink,
+) -> None:
+    _log_debug(logs, "Checking patch with git apply --3way --check -v.")
+    check_result = await run_git_command(
+        "apply",
+        "--3way",
+        "--check",
+        "-v",
+        str(patch_path),
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+
+    if check_result.returncode == 0:
+        _log_debug(logs, "Applying patch with git apply --3way -v.")
+        apply_result = await run_git_command(
+            "apply",
+            "--3way",
+            "-v",
+            str(patch_path),
+            cwd=repo_dir,
+            env=env,
+            log=logs,
+        )
+        if apply_result.returncode == 0:
+            return
+        _log_debug(logs, "git apply failed after a successful check; retrying with LF-normalized inputs.")
+    else:
+        _log_debug(logs, "git apply check failed; retrying with LF-normalized inputs.")
+
+    snapshots = _line_ending_snapshots(repo_dir, patch_content)
+    for snapshot in snapshots:
+        relative = snapshot.path.relative_to(repo_dir.resolve())
+        _log_debug(
+            logs,
+            f"Detected {snapshot.line_ending.upper()} line endings in {relative}."
+            if snapshot.is_text
+            else f"Detected binary file {relative}; skipping line-ending normalization.",
+        )
+
+    _log_debug(logs, "Temporarily normalizing referenced files and patch to LF line endings.")
+    normalized_snapshots = _normalize_files_to_lf(snapshots)
+    patch_path.write_bytes(_normalize_bytes_to_lf(patch_path.read_bytes()))
+    try:
+        apply_result = await run_git_command(
+            "apply",
+            "-v",
+            str(patch_path),
+            cwd=repo_dir,
+            env=env,
+            log=logs,
+        )
+    finally:
+        _restore_original_line_endings(normalized_snapshots)
+        _log_debug(logs, "Restored original line ending format for normalized files.")
+
+    if apply_result.returncode != 0:
+        raise RuntimeError("git apply failed")
 
 
 @dataclass
@@ -1038,21 +1239,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped("Patch written to temporary file."))
                 _log_debug(logs, f"Patch file saved to {patch_path}.")
 
-                _log_debug(
+                await _apply_patch_with_line_ending_retry(
+                    repo_dir,
+                    patch_path,
+                    patch_content,
+                    env,
                     logs,
-                    "Applying patch with git apply --3way -v.",
                 )
-                apply_result = await run_git_command(
-                    "apply",
-                    "--3way",
-                    "-v",
-                    str(patch_path),
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if apply_result.returncode != 0:
-                    raise RuntimeError("git apply failed")
                 _log_debug(logs, "Patch applied successfully.")
             else:
                 logs.append(_timestamped("No patch provided; skipping git apply."))
