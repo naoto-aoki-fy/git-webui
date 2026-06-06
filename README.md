@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- SSH key selection from config (sets `GIT_SSH_COMMAND`).
+- Configures all SSH keys from config in `GIT_SSH_COMMAND` with repeated `-o IdentityFile=` options.
 - Git author identity selection from config (`user.name`, `user.email`).
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
@@ -67,10 +67,9 @@ cp config-sample.toml config.toml
 
 `config.toml` supports two lists:
 
-- `[[ssh_keys]]`: selectable SSH private keys.
-  - `label` (display name)
+- `[[ssh_keys]]`: SSH private keys to pass to `ssh` with repeated `-o IdentityFile=` options.
+  - `label` (display name, used only for config readability/API labels)
   - `path` (private key path)
-  - `default` (optional, boolean)
 - `[[git_users]]`: selectable Git commit identities.
   - `label` (display name)
   - `name`
