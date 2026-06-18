@@ -320,6 +320,12 @@
                 Empty Commit
             </label>
         </div>
+        <div id="ssh_key_group">
+            <label for="ssh_key_path">SSH Private Key</label>
+            <select id="ssh_key_path" name="ssh_key_path">
+                <option value="">Loading SSH keys...</option>
+            </select>
+        </div>
         <div id="patch_group">
             <div class="field-header">
                 <label for="patch">Patch (applied with git apply --3way -v)</label>
@@ -393,6 +399,7 @@
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
+    const sshKeyField = document.getElementById("ssh_key_path");
     const openRepositoryButton = document.getElementById("open_repository");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
@@ -830,6 +837,7 @@
         commit_message: commitMessageField.value,
         pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
+        ssh_key_path: sshKeyField.value,
         patch: patchField.value,
     });
 
@@ -864,6 +872,7 @@
         if (typeof draft.allow_empty_commit === "boolean") {
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
+        applyDraftValue(sshKeyField, draft.ssh_key_path);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
@@ -1132,8 +1141,20 @@
         if (!payload) {
             return;
         }
+        const sshKeys = Array.isArray(payload.ssh_keys) ? payload.ssh_keys : [];
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
         gitUserConfig = gitUsers;
+        sshKeyField.innerHTML = "";
+        if (sshKeys.length === 0) {
+            resetSelect(sshKeyField, "(No SSH keys configured)");
+        } else {
+            sshKeys.forEach((entry, idx) => {
+                const option = document.createElement("option");
+                option.value = String(idx);
+                option.textContent = entry.label || "Unknown Key";
+                sshKeyField.appendChild(option);
+            });
+        }
         gitUserField.innerHTML = "";
         if (gitUsers.length === 0) {
             resetSelect(gitUserField, "(No Git users configured)");
@@ -1144,6 +1165,10 @@
                 option.textContent = entry.label || "Unknown User";
                 gitUserField.appendChild(option);
             });
+        }
+        const defaultSshIndex = payload.default_ssh_key_index;
+        if (typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex]) {
+            sshKeyField.value = String(defaultSshIndex);
         }
         defaultGitUserIndex = payload.default_git_user_index;
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
@@ -1166,6 +1191,7 @@
             updateBackendStatus("connected", "connected");
         } catch (error) {
             console.error("Failed to load backend config", error);
+            resetSelect(sshKeyField, "(Unable to load SSH keys)");
             resetSelect(gitUserField, "(Unable to load Git users)");
             updateBackendStatus("error", "config error");
         }
@@ -1428,6 +1454,9 @@
         if (queryParams.has("allow_empty_commit")) {
             const allowEmptyValue = (queryParams.get("allow_empty_commit") || "").toLowerCase();
             allowEmptyCommit.checked = ["true", "1", "yes", "on"].includes(allowEmptyValue);
+        }
+        if (queryParams.has("ssh_key_path")) {
+            sshKeyField.value = queryParams.get("ssh_key_path") || "";
         }
         if (queryParams.has("patch")) {
             const patchParam = queryParams.get("patch") || "";

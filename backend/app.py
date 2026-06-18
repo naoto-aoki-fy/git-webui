@@ -395,25 +395,6 @@ def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
     return shlex.quote(str(resolved_path))
 
 
-def _configured_ssh_identity_options() -> List[str]:
-    identity_options: List[str] = []
-    for idx, entry in enumerate(APP_CONFIG["ssh_keys"]):
-        if not isinstance(entry, dict):
-            raise RuntimeError(f"Invalid SSH key entry at index {idx}")
-
-        raw_ssh_key_path = entry.get("path", "")
-        if not isinstance(raw_ssh_key_path, str) or not raw_ssh_key_path.strip():
-            raise RuntimeError(f"SSH key path is required at index {idx}")
-
-        ssh_key_path = Path(raw_ssh_key_path).expanduser()
-        if not ssh_key_path.exists():
-            raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
-
-        ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
-        identity_options.append(f"-o IdentityFile={ssh_key_arg}")
-    return identity_options
-
-
 async def _git_ref_exists(
     repo_dir: Path,
     ref: str,
@@ -790,7 +771,12 @@ def _serialize_config() -> Dict[str, object]:
     ssh_keys = []
     for entry in APP_CONFIG["ssh_keys"]:
         label = _display_label(entry, entry.get("path", "Unknown Key"))
-        ssh_keys.append({"label": label})
+        ssh_keys.append(
+            {
+                "label": label,
+                "default": entry.get("default") is True,
+            }
+        )
     git_users = []
     for entry in APP_CONFIG["git_users"]:
         name = entry.get("name", "")
@@ -816,6 +802,7 @@ def _serialize_config() -> Dict[str, object]:
     return {
         "ssh_keys": ssh_keys,
         "git_users": git_users,
+        "default_ssh_key_index": _find_default_index(APP_CONFIG["ssh_keys"]),
         "default_git_user_index": _find_default_index(APP_CONFIG["git_users"]),
     }
 
@@ -835,6 +822,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
+    ssh_key_selection = form.get("ssh_key_path", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
     base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
@@ -852,6 +840,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
+    _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
@@ -864,6 +853,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "commit_message": commit_message,
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
+        "ssh_key_selection": ssh_key_selection,
         "branch_mode": branch_mode,
         "base_commit": base_commit,
     }
@@ -920,6 +910,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Branch A and Branch B must be different for merge mode."))
         return {"form_values": form_values, "success": False}
 
+    ssh_key_path: Optional[Path] = None
+
     try:
         with _temporary_workspace(logs) as workdir:
             repo_dir = _repo_workspace_for_url(repository_url)
@@ -927,17 +919,24 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
             _log_debug(logs, f"Repository directory will be {repo_dir}.")
 
-            ssh_identity_options = _configured_ssh_identity_options()
-            if ssh_identity_options:
-                env["GIT_SSH_COMMAND"] = " ".join([
-                    "ssh",
-                    *ssh_identity_options,
-                    "-o StrictHostKeyChecking=no",
-                ])
-                logs.append(_timestamped(f"Using {len(ssh_identity_options)} configured SSH key(s)."))
+            if ssh_key_selection:
+                try:
+                    key_idx = int(ssh_key_selection)
+                    key_entry = APP_CONFIG["ssh_keys"][key_idx]
+                    raw_ssh_key_path = key_entry.get("path", "")
+                    ssh_key_path = Path(raw_ssh_key_path).expanduser()
+                except (ValueError, IndexError):
+                    raise RuntimeError("Invalid SSH key selection") from None
+
+                if not ssh_key_path or not ssh_key_path.exists():
+                    raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
+
+                ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
+                env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
+                logs.append(_timestamped(f"Using SSH key: {ssh_key_path}"))
                 _log_debug(logs, f"GIT_SSH_COMMAND set to: {env['GIT_SSH_COMMAND']}")
             else:
-                _log_debug(logs, "No SSH keys configured; using default SSH configuration.")
+                _log_debug(logs, "No SSH key selected; using default SSH configuration.")
 
             repo_prepared = False
             default_branch = ""

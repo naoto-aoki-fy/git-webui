@@ -1,14 +1,17 @@
 [[ssh_keys]]
 label = "Work (GitHub)"
 path = "/home/user/.ssh/id_ed25519_work"
+default = true
 
 [[ssh_keys]]
 label = "Personal (GitHub)"
 path = "/home/user/.ssh/id_ed25519_personal"
+default = false
 
 [[ssh_keys]]
 label = "Customer Project (GitLab)"
 path = "/home/user/.ssh/id_rsa_customer"
+default = false
 
 
 [[git_users]]
