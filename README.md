@@ -83,6 +83,9 @@ From the repository root:
 
 ```bash
 python backend/app.py --config config.toml --repo-root repos --bind 0.0.0.0 --port 8080
+
+# Or listen only on an AF_UNIX socket instead of TCP:
+python backend/app.py --config config.toml --repo-root repos --unix-socket /tmp/git-webui.sock
 ```
 
 Then open:
@@ -107,6 +110,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 
 - `--bind` (server bind address)
 - `--port` (server port)
+- `--unix-socket` (AF_UNIX socket path; cannot be combined with `--bind` or `--port`)
 - `--config` (path to TOML config)
 - `--repo-root` (persistent cache/workspace root for repositories)
 - `--keep-temp` (keep temporary workspaces for debugging)

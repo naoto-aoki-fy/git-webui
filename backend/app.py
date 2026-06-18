@@ -27,6 +27,14 @@ DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
 
+
+@dataclass(frozen=True)
+class ServerListenConfig:
+    host: Optional[str]
+    port: Optional[int]
+    path: Optional[str]
+
+
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
 GIT_COMMON_OPTIONS = ("-c", "core.hooksPath=" + DEVNULL)
 KEEP_TEMP = False
@@ -665,13 +673,19 @@ def _parse_port(value: object) -> int:
     return port
 
 
-def _resolve_server_bind(
+def _resolve_server_listen_config(
     bind_override: Optional[str] = None,
     port_override: Optional[int] = None,
-) -> tuple[str, int]:
+    unix_socket: Optional[str] = None,
+) -> ServerListenConfig:
+    if unix_socket:
+        if bind_override is not None or port_override is not None:
+            raise RuntimeError("--unix-socket cannot be combined with --bind or --port")
+        return ServerListenConfig(host=None, port=None, path=unix_socket)
+
     bind = bind_override or DEFAULT_BIND
     port_source = port_override if port_override is not None else DEFAULT_PORT
-    return bind, _parse_port(port_source)
+    return ServerListenConfig(host=bind, port=_parse_port(port_source), path=None)
 
 
 def _parse_port_argument(value: str) -> int:
@@ -685,6 +699,10 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the git-webui backend server.")
     parser.add_argument("--bind", help="Bind address for the backend server.")
     parser.add_argument("--port", type=_parse_port_argument, help="Port number for the backend server.")
+    parser.add_argument(
+        "--unix-socket",
+        help="AF_UNIX socket path for the backend server. Cannot be combined with --bind or --port.",
+    )
     parser.add_argument(
         "--config",
         help="Path to the config.toml file.",
@@ -1485,10 +1503,19 @@ def create_app(serve_frontend: bool = True) -> web.Application:
 if __name__ == "__main__":
     args = _parse_args()
     _configure_runtime(args.config, args.repo_root, args.keep_temp)
-    bind, port = _resolve_server_bind(bind_override=args.bind, port_override=args.port)
+    try:
+        listen_config = _resolve_server_listen_config(
+            bind_override=args.bind,
+            port_override=args.port,
+            unix_socket=args.unix_socket,
+        )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+
     web.run_app(
         create_app(serve_frontend=args.serve_frontend),
-        host=bind,
-        port=port,
+        host=listen_config.host,
+        port=listen_config.port,
+        path=listen_config.path,
         max_line_size=MAX_LINE_SIZE,
     )
