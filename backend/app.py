@@ -412,6 +412,23 @@ async def _git_ref_exists(
     return result.returncode == 0
 
 
+async def _remote_has_branches(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> bool:
+    result = await run_git_command(
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/remotes/origin/",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Failed to list remote branches")
+    return any(
+        line.strip() and line.strip() != "origin/HEAD"
+        for line in result.stdout.splitlines()
+    )
+
+
 async def _resolve_default_branch(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> str:
     _log_debug(logs, "Resolving default branch from origin/HEAD.")
     default_branch_result = await run_git_command(
@@ -956,13 +973,35 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if fetch_result.returncode != 0:
                     raise RuntimeError("git fetch failed")
                 _log_debug(logs, "git fetch completed.")
-                default_branch = await _resolve_default_branch(repo_dir, env, logs)
-                if branch_mode == "default" and not branch:
-                    branch = default_branch
-                target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
-                _log_debug(logs, "Resetting cached repository state to match remote default branch.")
-                await _reset_cached_repo_state(repo_dir, env, logs, default_branch, target_branch)
-                repo_prepared = True
+                if branch_mode == "orphan" and not await _remote_has_branches(repo_dir, env, logs):
+                    _log_debug(logs, "Origin has no branches; skipping default branch resolution for orphan creation.")
+                    _log_debug(logs, "Cleaning cached repository before creating orphan branch.")
+                    reset_result = await run_git_command(
+                        "reset",
+                        "--hard",
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if reset_result.returncode != 0:
+                        raise RuntimeError("git reset --hard failed before orphan creation")
+                    clean_result = await run_git_command(
+                        "clean",
+                        "-fd",
+                        cwd=repo_dir,
+                        env=env,
+                        log=logs,
+                    )
+                    if clean_result.returncode != 0:
+                        raise RuntimeError("git clean -fd failed before orphan creation")
+                else:
+                    default_branch = await _resolve_default_branch(repo_dir, env, logs)
+                    if branch_mode == "default" and not branch:
+                        branch = default_branch
+                    target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
+                    _log_debug(logs, "Resetting cached repository state to match remote default branch.")
+                    await _reset_cached_repo_state(repo_dir, env, logs, default_branch, target_branch)
+                    repo_prepared = True
             else:
                 logs.append(_timestamped(f"Cloning repository {repository_url}"))
                 _log_debug(logs, "Starting git clone.")
