@@ -12,7 +12,7 @@ import tomllib
 import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
 from typing import Awaitable, Callable, Dict, List, Optional, Set
@@ -379,7 +379,7 @@ async def run_git_command(
 
 
 def _timestamped(message: str) -> str:
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     return f"[{timestamp} UTC] {message}"
 
 
