@@ -430,7 +430,9 @@
         if (!patchField || !patchCjkIndicator) {
             return;
         }
-        const hasCjk = cjkCharacterPattern.test(patchField.value);
+        const hasCjk = patchField.value
+            .split("\n")
+            .some((line) => !line.startsWith("-") && cjkCharacterPattern.test(line));
         patchCjkIndicator.classList.toggle("hidden", !hasCjk);
     };
     const toggleCommitMessageHelpers = () => {
