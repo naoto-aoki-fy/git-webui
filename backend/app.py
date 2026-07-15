@@ -770,11 +770,71 @@ def _temporary_workspace(logs: Optional[LogSink] = None) -> Path:
         yield Path(tmpdir)
 
 
-def _find_default_index(entries: List[Dict[str, str]]) -> Optional[int]:
+def _find_default_index(entries: List[Dict[str, object]]) -> Optional[int]:
     for idx, entry in enumerate(entries):
         if entry.get("default") is True:
             return idx
     return None
+
+
+def _normalize_repository_identifier(value: str) -> str:
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    if "://" in trimmed:
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(trimmed)
+            trimmed = f"{parsed.hostname or ''}{parsed.path}"
+        except ValueError:
+            pass
+    else:
+        match = re.match(r"^(?:[^@]+@)?([^:]+):(.+)$", trimmed)
+        if match:
+            trimmed = f"{match.group(1)}/{match.group(2)}"
+    return trimmed.strip("/").removesuffix(".git").lower()
+
+
+def _find_default_ssh_key_index_for_repository(repository_url: str) -> Optional[int]:
+    repository_name = Path(_normalize_repository_identifier(repository_url)).name
+    if not repository_name:
+        return _find_default_index(APP_CONFIG["ssh_keys"])
+    for idx, entry in enumerate(APP_CONFIG["ssh_keys"]):
+        default_repos = entry.get("default_repositories", [])
+        if not isinstance(default_repos, list):
+            continue
+        for repo_value in default_repos:
+            if not isinstance(repo_value, str):
+                continue
+            default_repo_name = Path(_normalize_repository_identifier(repo_value)).name
+            if default_repo_name and default_repo_name in repository_name:
+                return idx
+    return _find_default_index(APP_CONFIG["ssh_keys"])
+
+
+def _resolve_ssh_env(ssh_key_selection: str, logs: Optional[LogSink], label: str = "") -> Dict[str, str]:
+    env = os.environ.copy()
+    if not ssh_key_selection:
+        _log_debug(logs, f"No SSH key selected for {label or 'repository'}; using default SSH configuration.")
+        return env
+    try:
+        key_idx = int(ssh_key_selection)
+        key_entry = APP_CONFIG["ssh_keys"][key_idx]
+        raw_ssh_key_path = key_entry.get("path", "")
+        ssh_key_path = Path(raw_ssh_key_path).expanduser()
+    except (ValueError, IndexError):
+        raise RuntimeError(f"Invalid SSH key selection for {label or 'repository'}") from None
+
+    if not ssh_key_path.exists():
+        raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
+
+    ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
+    env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
+    if logs is not None:
+        logs.append(_timestamped(f"Using SSH key for {label or 'repository'}: {ssh_key_path}"))
+    _log_debug(logs, f"GIT_SSH_COMMAND set for {label or 'repository'}: {env['GIT_SSH_COMMAND']}")
+    return env
 
 
 def _display_label(entry: Dict[str, str], fallback: str) -> str:
@@ -788,10 +848,18 @@ def _serialize_config() -> Dict[str, object]:
     ssh_keys = []
     for entry in APP_CONFIG["ssh_keys"]:
         label = _display_label(entry, entry.get("path", "Unknown Key"))
+        default_repos = entry.get("default_repositories", [])
+        if not isinstance(default_repos, list):
+            default_repos = []
         ssh_keys.append(
             {
                 "label": label,
                 "default": entry.get("default") is True,
+                "default_repositories": [
+                    repo.strip()
+                    for repo in default_repos
+                    if isinstance(repo, str) and repo.strip()
+                ],
             }
         )
     git_users = []
@@ -836,28 +904,32 @@ def _normalize_form_payload(form: Dict[str, str]) -> Dict[str, str]:
 async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
     _log_debug(logs, "Received submission payload.")
     repository_url = form.get("repository_url", "").strip()
+    mirror_repository_url = form.get("mirror_repository_url", "").strip()
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
     ssh_key_selection = form.get("ssh_key_path", "").strip()
+    mirror_ssh_key_selection = form.get("mirror_ssh_key_path", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
     base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
-    if branch_mode in {"from_commit", "revert_to_commit"}:
+    if branch_mode in {"from_commit", "revert_to_commit", "mirror_repository"}:
         commit_message = ""
         allow_empty_commit = False
         patch_content = ""
 
     _log_debug(logs, f"Parsed repository_url='{repository_url}'.")
+    _log_debug(logs, f"Parsed mirror_repository_url='{mirror_repository_url or '(none)'}'.")
     _log_debug(logs, f"Parsed branch='{branch or '(default)'}'.")
     _log_debug(logs, f"Parsed new_branch='{new_branch or '(none)'}'.")
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
     _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
+    _log_debug(logs, f"Parsed mirror SSH key selection='{mirror_ssh_key_selection or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
@@ -865,12 +937,14 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "merge_branches"} else None)
     form_values = {
         "repository_url": repository_url,
+        "mirror_repository_url": mirror_repository_url,
         "branch": branch,
         "new_branch": new_branch,
         "commit_message": commit_message,
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
         "ssh_key_selection": ssh_key_selection,
+        "mirror_ssh_key_selection": mirror_ssh_key_selection,
         "branch_mode": branch_mode,
         "base_commit": base_commit,
     }
@@ -896,9 +970,17 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Repository URL is required."))
         return {"form_values": form_values, "success": False}
 
-    if branch_mode not in {"from_commit", "revert_to_commit", "merge_branches"} and not patch_content.strip() and not allow_empty_commit:
+    if branch_mode not in {"from_commit", "revert_to_commit", "merge_branches", "mirror_repository"} and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "mirror_repository" and not mirror_repository_url:
+        _log_debug(logs, "Repository B URL missing for mirror mode.")
+        logs.append(_timestamped("Repository B URL is required for mirror mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "mirror_repository" and repository_url == mirror_repository_url:
+        _log_debug(logs, "Repository A and Repository B are identical in mirror mode.")
+        logs.append(_timestamped("Repository A and Repository B must be different for mirror mode."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
         _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
@@ -935,6 +1017,36 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
             env = os.environ.copy()
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
             _log_debug(logs, f"Repository directory will be {repo_dir}.")
+
+            if branch_mode == "mirror_repository":
+                source_env = _resolve_ssh_env(ssh_key_selection, logs, "Repository A")
+                target_env = _resolve_ssh_env(mirror_ssh_key_selection, logs, "Repository B")
+                mirror_dir = workdir / "mirror.git"
+                logs.append(_timestamped(f"Cloning Repository A as a mirror: {repository_url}"))
+                clone_result = await run_git_command(
+                    "clone",
+                    "--mirror",
+                    repository_url,
+                    str(mirror_dir),
+                    env=source_env,
+                    log=logs,
+                )
+                if clone_result.returncode != 0:
+                    raise RuntimeError("git clone --mirror failed")
+                logs.append(_timestamped(f"Pushing mirrored refs to Repository B: {mirror_repository_url}"))
+                push_result = await run_git_command(
+                    "push",
+                    "--mirror",
+                    mirror_repository_url,
+                    cwd=mirror_dir,
+                    env=target_env,
+                    log=logs,
+                )
+                if push_result.returncode != 0:
+                    raise RuntimeError("git push --mirror failed")
+                logs.append(_timestamped("Repository A was mirrored to Repository B successfully."))
+                success = True
+                return {"form_values": form_values, "success": success}
 
             if ssh_key_selection:
                 try:
@@ -1502,6 +1614,12 @@ async def submit_merge_branches_handler(request: web.Request) -> web.Response:
     return await submit_handler(request)
 
 
+async def submit_mirror_repository_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "mirror_repository")
+    return await submit_handler(request)
+
+
 async def config_handler(_: web.Request) -> web.Response:
     return web.json_response({"payload": _serialize_config()})
 
@@ -1524,6 +1642,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app.router.add_route("POST", "/submit/orphan", submit_orphan_handler)
     app.router.add_route("POST", "/submit/revert_to_commit", submit_revert_to_commit_handler)
     app.router.add_route("POST", "/submit/merge_branches", submit_merge_branches_handler)
+    app.router.add_route("POST", "/submit/mirror_repository", submit_mirror_repository_handler)
     app.router.add_route("GET", "/config", config_handler)
     app.router.add_route("GET", "/health", health_handler)
     if serve_frontend:

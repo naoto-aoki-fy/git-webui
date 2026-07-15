@@ -252,6 +252,11 @@
             </div>
             <datalist id="repository_history"></datalist>
         </div>
+        <div id="mirror_repository_group" class="hidden">
+            <label for="mirror_repository_url">Repository B URL (mirror destination)</label>
+            <input type="text" id="mirror_repository_url" name="mirror_repository_url" list="repository_history">
+            <p class="subtle">Mirror mode runs git clone --mirror on Repository A, then git push --mirror to Repository B. Repository B refs not present in Repository A may be deleted.</p>
+        </div>
         <div id="branch_group">
             <label for="branch">Branch (optional: use the current branch)</label>
             <input type="text" id="branch" name="branch" list="branch_history">
@@ -280,8 +285,12 @@
                     <input type="radio" name="branch_mode" value="merge_branches">
                     Merge branch B into branch A (fast-forward only; deletes branch B after success)
                 </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="mirror_repository">
+                    Mirror Repository A to Repository B
+                </label>
             </div>
-            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID. Merge mode requires both branch A and branch B.</p>
+            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID. Merge mode requires both branch A and branch B. Mirror mode force-updates Repository B to match Repository A.</p>
         </div>
         <div id="new_branch_group" class="hidden">
             <label for="new_branch" id="new_branch_label">New Branch Name</label>
@@ -321,8 +330,14 @@
             </label>
         </div>
         <div id="ssh_key_group">
-            <label for="ssh_key_path">SSH Private Key</label>
+            <label for="ssh_key_path" id="ssh_key_label">SSH Private Key</label>
             <select id="ssh_key_path" name="ssh_key_path">
+                <option value="">Loading SSH keys...</option>
+            </select>
+        </div>
+        <div id="mirror_ssh_key_group" class="hidden">
+            <label for="mirror_ssh_key_path">Repository B SSH Private Key</label>
+            <select id="mirror_ssh_key_path" name="mirror_ssh_key_path">
                 <option value="">Loading SSH keys...</option>
             </select>
         </div>
@@ -386,6 +401,8 @@
     const commitIdField = document.getElementById("base_commit");
     const commitIdLabel = document.getElementById("base_commit_label");
     const branchGroup = document.getElementById("branch_group");
+    const mirrorRepositoryGroup = document.getElementById("mirror_repository_group");
+    const mirrorRepositoryField = document.getElementById("mirror_repository_url");
     const repositoryField = document.getElementById("repository_url");
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
@@ -400,6 +417,9 @@
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
     const sshKeyField = document.getElementById("ssh_key_path");
+    const sshKeyLabel = document.getElementById("ssh_key_label");
+    const mirrorSshKeyGroup = document.getElementById("mirror_ssh_key_group");
+    const mirrorSshKeyField = document.getElementById("mirror_ssh_key_path");
     const openRepositoryButton = document.getElementById("open_repository");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
@@ -478,6 +498,8 @@
     let logStream = null;
     let activeClientId = null;
     let gitUserConfig = [];
+    let sshKeyConfig = [];
+    let defaultSshKeyIndex = null;
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
@@ -840,6 +862,8 @@
         pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
         ssh_key_path: sshKeyField.value,
+        mirror_repository_url: mirrorRepositoryField ? mirrorRepositoryField.value : "",
+        mirror_ssh_key_path: mirrorSshKeyField ? mirrorSshKeyField.value : "",
         patch: patchField.value,
     });
 
@@ -875,6 +899,8 @@
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
         applyDraftValue(sshKeyField, draft.ssh_key_path);
+        applyDraftValue(mirrorRepositoryField, draft.mirror_repository_url);
+        applyDraftValue(mirrorSshKeyField, draft.mirror_ssh_key_path);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
@@ -914,6 +940,9 @@
         }
         if (branchMode === "merge_branches") {
             return "/submit/merge_branches";
+        }
+        if (branchMode === "mirror_repository") {
+            return "/submit/mirror_repository";
         }
         return "/submit";
     };
@@ -973,9 +1002,35 @@
 
     const toggleCommitField = () => {
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
+        const isMirrorMode = selectedMode === "mirror_repository";
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
         const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
         const needsExistingBranch = selectedMode === "revert_to_commit" || selectedMode === "merge_branches";
+        if (mirrorRepositoryGroup) {
+            mirrorRepositoryGroup.classList.toggle("hidden", !isMirrorMode);
+        }
+        if (mirrorRepositoryField) {
+            if (isMirrorMode) {
+                mirrorRepositoryField.removeAttribute("disabled");
+                mirrorRepositoryField.setAttribute("required", "");
+            } else {
+                mirrorRepositoryField.setAttribute("disabled", "");
+                mirrorRepositoryField.removeAttribute("required");
+            }
+        }
+        if (mirrorSshKeyGroup) {
+            mirrorSshKeyGroup.classList.toggle("hidden", !isMirrorMode);
+        }
+        if (mirrorSshKeyField) {
+            if (isMirrorMode) {
+                mirrorSshKeyField.removeAttribute("disabled");
+            } else {
+                mirrorSshKeyField.setAttribute("disabled", "");
+            }
+        }
+        if (sshKeyLabel) {
+            sshKeyLabel.textContent = isMirrorMode ? "Repository A SSH Private Key" : "SSH Private Key";
+        }
         commitIdGroup.classList.toggle("hidden", !needsCommit);
         if (needsCommit) {
             commitIdField.removeAttribute("disabled");
@@ -1008,8 +1063,8 @@
             }
         }
         const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        branchGroup.classList.toggle("hidden", !(selectedMode === "default" || needsExistingBranch));
-        if (selectedMode === "default" || needsExistingBranch) {
+        branchGroup.classList.toggle("hidden", isMirrorMode || !(selectedMode === "default" || needsExistingBranch));
+        if (!isMirrorMode && (selectedMode === "default" || needsExistingBranch)) {
             branchField.removeAttribute("disabled");
             if (needsExistingBranch) {
                 branchField.setAttribute("required", "");
@@ -1028,12 +1083,13 @@
             branchField.setAttribute("placeholder", "");
         }
         const isMergeMode = selectedMode === "merge_branches";
-        gitUserGroup.classList.toggle("hidden", hideDetails || isMergeMode);
-        commitMessageGroup.classList.toggle("hidden", hideDetails || isMergeMode);
-        prMessageGroup.classList.toggle("hidden", hideDetails || isMergeMode);
-        allowEmptyGroup.classList.toggle("hidden", hideDetails || isMergeMode);
-        patchGroup.classList.toggle("hidden", hideDetails || isMergeMode || allowEmptyCommit.checked);
-        if (hideDetails || isMergeMode) {
+        const noPatchMode = isMergeMode || isMirrorMode;
+        gitUserGroup.classList.toggle("hidden", hideDetails || noPatchMode);
+        commitMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
+        prMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
+        allowEmptyGroup.classList.toggle("hidden", hideDetails || noPatchMode);
+        patchGroup.classList.toggle("hidden", hideDetails || noPatchMode || allowEmptyCommit.checked);
+        if (hideDetails || noPatchMode) {
             gitUserField.setAttribute("disabled", "");
             commitMessageField.setAttribute("disabled", "");
             prMessageField.setAttribute("disabled", "");
@@ -1056,6 +1112,7 @@
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
+        applyDefaultSshKeys();
     };
 
     const resetSelect = (select, message) => {
@@ -1105,6 +1162,41 @@
         return parts.length > 0 ? parts[parts.length - 1] : normalized;
     };
 
+    const findDefaultSshKeyIndexForRepo = (repositoryUrl) => {
+        const repositoryName = getRepositoryName(repositoryUrl);
+        if (!repositoryName) {
+            return defaultSshKeyIndex;
+        }
+        for (let idx = 0; idx < sshKeyConfig.length; idx += 1) {
+            const entry = sshKeyConfig[idx];
+            const defaults = Array.isArray(entry.default_repositories) ? entry.default_repositories : [];
+            for (const repoValue of defaults) {
+                const defaultRepoName = getRepositoryName(repoValue);
+                if (defaultRepoName && repositoryName.includes(defaultRepoName)) {
+                    return idx;
+                }
+            }
+        }
+        return defaultSshKeyIndex;
+    };
+
+    const applyDefaultSshKeyForRepository = (field, repositoryUrl) => {
+        if (!field || field.hasAttribute("disabled")) {
+            return;
+        }
+        const matchIndex = findDefaultSshKeyIndexForRepo(repositoryUrl);
+        if (typeof matchIndex === "number" && sshKeyConfig[matchIndex]) {
+            field.value = String(matchIndex);
+        }
+    };
+
+    const applyDefaultSshKeys = () => {
+        applyDefaultSshKeyForRepository(sshKeyField, repositoryField.value);
+        if (mirrorRepositoryField) {
+            applyDefaultSshKeyForRepository(mirrorSshKeyField, mirrorRepositoryField.value);
+        }
+    };
+
     const findDefaultGitUserIndexForRepo = (repositoryUrl) => {
         if (!repositoryUrl) {
             return null;
@@ -1146,15 +1238,23 @@
         const sshKeys = Array.isArray(payload.ssh_keys) ? payload.ssh_keys : [];
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
         gitUserConfig = gitUsers;
+        sshKeyConfig = sshKeys;
         sshKeyField.innerHTML = "";
+        if (mirrorSshKeyField) {
+            mirrorSshKeyField.innerHTML = "";
+        }
         if (sshKeys.length === 0) {
             resetSelect(sshKeyField, "(No SSH keys configured)");
+            resetSelect(mirrorSshKeyField, "(No SSH keys configured)");
         } else {
             sshKeys.forEach((entry, idx) => {
                 const option = document.createElement("option");
                 option.value = String(idx);
                 option.textContent = entry.label || "Unknown Key";
                 sshKeyField.appendChild(option);
+                if (mirrorSshKeyField) {
+                    mirrorSshKeyField.appendChild(option.cloneNode(true));
+                }
             });
         }
         gitUserField.innerHTML = "";
@@ -1169,9 +1269,8 @@
             });
         }
         const defaultSshIndex = payload.default_ssh_key_index;
-        if (typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex]) {
-            sshKeyField.value = String(defaultSshIndex);
-        }
+        defaultSshKeyIndex = typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex] ? defaultSshIndex : null;
+        applyDefaultSshKeys();
         defaultGitUserIndex = payload.default_git_user_index;
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
             gitUserField.value = String(defaultGitUserIndex);
@@ -1179,6 +1278,7 @@
             defaultGitUserIndex = null;
         }
         applyDefaultGitUserForRepository();
+        applyDefaultSshKeys();
     };
 
     const fetchConfig = async () => {
@@ -1234,8 +1334,14 @@
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
+        repositoryField.addEventListener("input", applyDefaultSshKeys);
+        repositoryField.addEventListener("change", applyDefaultSshKeys);
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
+    }
+    if (mirrorRepositoryField) {
+        mirrorRepositoryField.addEventListener("input", applyDefaultSshKeys);
+        mirrorRepositoryField.addEventListener("change", applyDefaultSshKeys);
     }
     if (branchField) {
         branchField.addEventListener("input", updateRepositoryLinkButton);
@@ -1467,6 +1573,7 @@
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
+        applyDefaultSshKeys();
         updateRepositoryLinkButton();
         const cleanHash = querySource === "hash" ? "" : window.location.hash;
         const cleanUrl = window.location.pathname + cleanHash;
