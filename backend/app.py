@@ -796,9 +796,21 @@ def _normalize_repository_identifier(value: str) -> str:
     return trimmed.strip("/").removesuffix(".git").lower()
 
 
+def _repository_owner_for_ssh_key_default(value: str) -> str:
+    normalized = _normalize_repository_identifier(value)
+    if not normalized:
+        return ""
+    parts = [part for part in normalized.split("/") if part]
+    if len(parts) >= 3:
+        return parts[1]
+    if len(parts) >= 2:
+        return parts[0]
+    return parts[0] if parts else ""
+
+
 def _find_default_ssh_key_index_for_repository(repository_url: str) -> Optional[int]:
-    repository_name = Path(_normalize_repository_identifier(repository_url)).name
-    if not repository_name:
+    repository_owner = _repository_owner_for_ssh_key_default(repository_url)
+    if not repository_owner:
         return _find_default_index(APP_CONFIG["ssh_keys"])
     for idx, entry in enumerate(APP_CONFIG["ssh_keys"]):
         default_repos = entry.get("default_repositories", [])
@@ -807,8 +819,8 @@ def _find_default_ssh_key_index_for_repository(repository_url: str) -> Optional[
         for repo_value in default_repos:
             if not isinstance(repo_value, str):
                 continue
-            default_repo_name = Path(_normalize_repository_identifier(repo_value)).name
-            if default_repo_name and default_repo_name in repository_name:
+            default_repo_owner = _repository_owner_for_ssh_key_default(repo_value)
+            if default_repo_owner and default_repo_owner == repository_owner:
                 return idx
     return _find_default_index(APP_CONFIG["ssh_keys"])
 

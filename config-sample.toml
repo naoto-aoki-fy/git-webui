@@ -3,20 +3,20 @@ label = "Work (GitHub)"
 path = "/home/user/.ssh/id_ed25519_work"
 default = true
 default_repositories = [
-  "company/repo-a",
+  "company",
 ]
 
 [[ssh_keys]]
 label = "Personal (GitHub)"
 path = "/home/user/.ssh/id_ed25519_personal"
 default = false
-default_repositories = ["personal-repo"]
+default_repositories = ["personal"]
 
 [[ssh_keys]]
 label = "Customer Project (GitLab)"
 path = "/home/user/.ssh/id_rsa_customer"
 default = false
-default_repositories = ["customer/repo-b"]
+default_repositories = ["customer"]
 
 
 [[git_users]]

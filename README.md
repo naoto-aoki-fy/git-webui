@@ -71,7 +71,7 @@ cp config-sample.toml config.toml
   - `label` (display name)
   - `path` (private key path)
   - `default` (optional, boolean)
-  - `default_repositories` (optional list used by frontend defaults; useful when mirroring Repository A to Repository B with different SSH keys)
+  - `default_repositories` (optional list used by frontend defaults; for SSH URLs such as `git@github.com:owner/repo.git`, entries are matched against the `owner` segment exactly; useful when mirroring Repository A to Repository B with different SSH keys)
 - `[[git_users]]`: selectable Git commit identities.
   - `label` (display name)
   - `name`

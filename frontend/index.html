@@ -1162,17 +1162,32 @@
         return parts.length > 0 ? parts[parts.length - 1] : normalized;
     };
 
+    const getRepositoryOwnerForSshKeyDefault = (value) => {
+        const normalized = normalizeRepository(value);
+        if (!normalized) {
+            return "";
+        }
+        const parts = normalized.split("/").filter(Boolean);
+        if (parts.length >= 3) {
+            return parts[1];
+        }
+        if (parts.length >= 2) {
+            return parts[0];
+        }
+        return parts.length > 0 ? parts[0] : "";
+    };
+
     const findDefaultSshKeyIndexForRepo = (repositoryUrl) => {
-        const repositoryName = getRepositoryName(repositoryUrl);
-        if (!repositoryName) {
+        const repositoryOwner = getRepositoryOwnerForSshKeyDefault(repositoryUrl);
+        if (!repositoryOwner) {
             return defaultSshKeyIndex;
         }
         for (let idx = 0; idx < sshKeyConfig.length; idx += 1) {
             const entry = sshKeyConfig[idx];
             const defaults = Array.isArray(entry.default_repositories) ? entry.default_repositories : [];
             for (const repoValue of defaults) {
-                const defaultRepoName = getRepositoryName(repoValue);
-                if (defaultRepoName && repositoryName.includes(defaultRepoName)) {
+                const defaultRepoOwner = getRepositoryOwnerForSshKeyDefault(repoValue);
+                if (defaultRepoOwner && defaultRepoOwner === repositoryOwner) {
                     return idx;
                 }
             }
