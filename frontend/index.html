@@ -65,7 +65,7 @@
             display: block;
             margin-bottom: 0.5rem;
         }
-        input[type=text], textarea, select {
+        input[type=text], input[type=password], textarea, select {
             width: 100%;
             box-sizing: border-box;
             padding: 0.75rem;
@@ -222,6 +222,29 @@
         .modal-actions .button {
             min-width: 120px;
         }
+        .candidate-panel {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem;
+            background: var(--bg-input);
+        }
+        .candidate-list {
+            display: grid;
+            gap: 0.75rem;
+            margin: 1rem 0;
+        }
+        .candidate-card {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.75rem;
+            padding: 0.9rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .candidate-card.recommended { border-color: #48bb78; }
+        .candidate-card pre { margin: 0.5rem 0; white-space: pre-wrap; }
+        .candidate-meta { color: var(--text-subtle); font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -250,6 +273,19 @@
             <label for="generate_url_template">Prompt generation URL</label>
             <input type="text" id="generate_url_template" value="https://chatgpt.com/#?q={message}" placeholder="https://chatgpt.com/#?q={message}">
             <p class="subtle">Use <code>{message}</code> where the URL-encoded prompt should be inserted. These prompt generation settings are saved in your browser.</p>
+        </div>
+        <div>
+            <label for="openai_endpoint_url">OpenAI-compatible endpoint</label>
+            <input type="text" id="openai_endpoint_url" value="https://api.openai.com/v1/chat/completions" placeholder="https://api.openai.com/v1/chat/completions">
+        </div>
+        <div>
+            <label for="openai_authorization_token">Authorization Token</label>
+            <input type="password" id="openai_authorization_token" autocomplete="off" placeholder="Bearer token">
+            <p class="subtle">The endpoint and token are stored only in this browser's localStorage. The browser calls the endpoint directly, so it must allow CORS requests from this page.</p>
+        </div>
+        <div>
+            <label for="openai_model">Model</label>
+            <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
         </div>
     </div>    <form method="post" action="/" id="apply_form" novalidate>
         <div>
@@ -325,12 +361,21 @@
                     <button type="button" class="button secondary" id="copy_patch">
                         Prompt for generating a commit message
                     </button>
+                    <button type="button" class="button secondary" id="generate_commit_candidates">
+                        Generate suggestions
+                    </button>
                     <a class="button secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
                         Generate with ChatGPT
                     </a>
                 </div>
             </div>
             <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
+            <div id="commit_candidate_panel" class="candidate-panel hidden" aria-live="polite">
+                <strong>Commit message suggestions</strong>
+                <p id="commit_candidate_status" class="subtle"></p>
+                <div id="commit_candidate_list" class="candidate-list"></div>
+                <button type="button" class="button secondary" id="use_commit_candidate">Use selected suggestion</button>
+            </div>
         </div>
         <div id="allow_empty_group">
             <label>
@@ -436,6 +481,14 @@
     const openChatGPTButton = document.getElementById("open_chatgpt");
     const generateServiceNameField = document.getElementById("generate_service_name");
     const generateUrlTemplateField = document.getElementById("generate_url_template");
+    const openAIEndpointField = document.getElementById("openai_endpoint_url");
+    const openAITokenField = document.getElementById("openai_authorization_token");
+    const openAIModelField = document.getElementById("openai_model");
+    const generateCandidatesButton = document.getElementById("generate_commit_candidates");
+    const candidatePanel = document.getElementById("commit_candidate_panel");
+    const candidateStatus = document.getElementById("commit_candidate_status");
+    const candidateList = document.getElementById("commit_candidate_list");
+    const useCandidateButton = document.getElementById("use_commit_candidate");
     const isClipboardPasteAvailable =
         typeof navigator !== "undefined" &&
         navigator.clipboard &&
@@ -474,6 +527,9 @@
         if (openChatGPTButton) {
             openChatGPTButton.classList.toggle("hidden", shouldHide);
         }
+        if (generateCandidatesButton) {
+            generateCandidatesButton.classList.toggle("hidden", shouldHide);
+        }
     };
     const clearCopyPatchIndicatorIfPatchChanged = () => {
         if (!copyPatchButton || copyPatchButton.dataset.copied !== "true") {
@@ -506,8 +562,10 @@
     const DRAFT_STORAGE_KEY = "git-webui.draft";
     const THEME_STORAGE_KEY = "git-webui.theme";
     const GENERATE_SETTINGS_STORAGE_KEY = "git-webui.generateSettings";
+    const OPENAI_SETTINGS_STORAGE_KEY = "git-webui.openAISettings";
     const DEFAULT_GENERATE_SERVICE_NAME = "ChatGPT";
     const DEFAULT_GENERATE_URL_TEMPLATE = "https://chatgpt.com/#?q={message}";
+    const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
     const MAX_STORED_VALUES = 10;
     let logStream = null;
     let activeClientId = null;
@@ -519,6 +577,7 @@
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
     let isSubmitting = false;
+    let generatedCandidates = [];
     const systemThemeMediaQuery =
         typeof window !== "undefined" && typeof window.matchMedia === "function"
             ? window.matchMedia("(prefers-color-scheme: dark)")
@@ -1471,6 +1530,134 @@
     const display = new Intl.DisplayNames(["en"], { type: "language" });
     const languageName = display.of(langCode) || "English";
 
+    const commitCandidateSystemPrompt = `You are a professional Git commit message generator.
+
+Based on the changes described after "---- Changes ----", generate 2–5 English Git commit message candidates.
+
+Requirements:
+- Prefer the Conventional Commits format.
+- The commit body should contain 0–5 bullet points using "-".
+- Produce candidates with different levels of detail (e.g. short, standard, detailed) without significant overlap.
+- Evaluate each candidate independently.
+
+Output requirements:
+- Output only valid JSON, with no Markdown, code fences, explanations, or text outside the JSON.
+- Use exactly this structure: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.
+- Generate 2–5 candidates with sequential ids starting at 1.
+- style must be one of: short, standard, detailed, documentation-oriented, alternative.
+- recommended_adoption_level must be an integer from 1 to 5.
+- reason must be a ${languageName} explanation of 1–3 sentences evaluating coverage, clarity, Conventional Commits conformity, and future searchability.
+- Do not add properties not defined above and select one best recommended_candidate_id.`;
+
+    const readOpenAISettings = () => {
+        try {
+            const settings = JSON.parse(window.localStorage.getItem(OPENAI_SETTINGS_STORAGE_KEY));
+            if (settings && typeof settings.endpoint === "string") openAIEndpointField.value = settings.endpoint;
+            if (settings && typeof settings.token === "string") openAITokenField.value = settings.token;
+            if (settings && typeof settings.model === "string") openAIModelField.value = settings.model;
+        } catch (error) {
+            console.warn("Unable to read OpenAI-compatible endpoint settings", error);
+        }
+    };
+
+    const saveOpenAISettings = () => {
+        window.localStorage.setItem(OPENAI_SETTINGS_STORAGE_KEY, JSON.stringify({
+            endpoint: openAIEndpointField.value,
+            token: openAITokenField.value,
+            model: openAIModelField.value,
+        }));
+    };
+
+    const validateCandidateResponse = (value) => {
+        const styles = new Set(["short", "standard", "detailed", "documentation-oriented", "alternative"]);
+        if (!value || !Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
+            throw new Error("The endpoint did not return 2–5 candidates.");
+        }
+        value.candidates.forEach((candidate, index) => {
+            if (candidate.id !== index + 1 || !styles.has(candidate.style) ||
+                typeof candidate.title !== "string" || typeof candidate.commit_message !== "string" ||
+                !Number.isInteger(candidate.recommended_adoption_level) || candidate.recommended_adoption_level < 1 ||
+                candidate.recommended_adoption_level > 5 || typeof candidate.reason !== "string") {
+                throw new Error("The endpoint returned an invalid candidate at position " + (index + 1) + ".");
+            }
+        });
+        if (!value.candidates.some((candidate) => candidate.id === value.recommended_candidate_id)) {
+            throw new Error("The recommended candidate id is invalid.");
+        }
+        return value;
+    };
+
+    const renderCandidates = (result) => {
+        generatedCandidates = result.candidates;
+        candidateList.replaceChildren();
+        result.candidates.forEach((candidate) => {
+            const label = document.createElement("label");
+            label.className = "candidate-card" + (candidate.id === result.recommended_candidate_id ? " recommended" : "");
+            const radio = document.createElement("input");
+            radio.type = "radio";
+            radio.name = "commit_candidate";
+            radio.value = String(candidate.id);
+            radio.checked = candidate.id === result.recommended_candidate_id;
+            const content = document.createElement("div");
+            const heading = document.createElement("strong");
+            heading.textContent = candidate.title + (candidate.id === result.recommended_candidate_id ? " (Recommended)" : "");
+            const message = document.createElement("pre");
+            message.textContent = candidate.commit_message;
+            const meta = document.createElement("div");
+            meta.className = "candidate-meta";
+            meta.textContent = "Adoption level: " + candidate.recommended_adoption_level + "/5 — " + candidate.reason;
+            content.append(heading, message, meta);
+            label.append(radio, content);
+            candidateList.appendChild(label);
+        });
+        candidateStatus.textContent = "Select a suggestion, then apply it to the commit message.";
+        candidatePanel.classList.remove("hidden");
+    };
+
+    const generateCommitCandidates = async () => {
+        const endpoint = openAIEndpointField.value.trim() || DEFAULT_OPENAI_ENDPOINT;
+        const token = openAITokenField.value.trim();
+        const model = openAIModelField.value.trim();
+        if (!token || !model) {
+            alert("Enter an Authorization Token and model before generating suggestions.");
+            return;
+        }
+        saveOpenAISettings();
+        generateCandidatesButton.disabled = true;
+        generateCandidatesButton.textContent = "Generating…";
+        candidatePanel.classList.remove("hidden");
+        candidateStatus.textContent = "Requesting suggestions directly from the configured endpoint…";
+        candidateList.replaceChildren();
+        try {
+            const response = await fetch(endpoint, {
+                method: "POST",
+                headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
+                body: JSON.stringify({
+                    model,
+                    messages: [
+                        {role: "system", content: commitCandidateSystemPrompt},
+                        {role: "user", content: "---- Changes ----\n" + prMessageField.value + "\n\n" + patchField.value},
+                    ],
+                    response_format: {type: "json_object"},
+                }),
+            });
+            if (!response.ok) throw new Error("Endpoint returned HTTP " + response.status + ".");
+            const payload = await response.json();
+            const rawContent = payload?.choices?.[0]?.message?.content;
+            const content = Array.isArray(rawContent)
+                ? rawContent.map((part) => typeof part === "string" ? part : part.text || "").join("")
+                : rawContent;
+            if (typeof content !== "string") throw new Error("Endpoint response did not contain message content.");
+            renderCandidates(validateCandidateResponse(JSON.parse(content)));
+        } catch (error) {
+            console.error("Commit suggestion generation failed", error);
+            candidateStatus.textContent = "Generation failed: " + (error.message || "Unknown error");
+        } finally {
+            generateCandidatesButton.disabled = false;
+            generateCandidatesButton.textContent = "Generate suggestions";
+        }
+    };
+
     const patchCopyPrompt = `You are a professional commit message generator. Based on the changes described after “---- Changes ----”, propose 2–5 English Git commit message candidates.\n\nOutput requirements:\n\n* It is preferable to follow the Conventional Commits format.\n* The body be a bulleted list (-) with about 0–5 lines.\n* Please output each commit message inside a code block.\n* Differentiate each candidate so that expressions and level of detail (short / standard / more detailed) do not overlap.\n\nEvaluation requirements:\n\n* Immediately after each candidate, always include (in ${languageName}) a “Recommended adoption level” (⭐⭐⭐☆☆) and a “Reason” (${languageName}, 1–3 sentences).\n* In the reason, include perspectives on coverage of the changes, clarity, conformity to Conventional Commits, and future searchability (appropriateness of scope/type).\n\n---- Changes ----\n\n\n`;
     const buildGeneratedAtComment = () => {
         return "<!-- ignore this: generated at " + new Date().toISOString() + " -->";
@@ -1576,6 +1763,23 @@
     if (copyPatchButton) {
         copyPatchButton.addEventListener("click", copyPatchToClipboard);
     }
+    if (generateCandidatesButton) {
+        generateCandidatesButton.addEventListener("click", generateCommitCandidates);
+    }
+    if (useCandidateButton) {
+        useCandidateButton.addEventListener("click", () => {
+            const selected = document.querySelector("input[name='commit_candidate']:checked");
+            const candidate = generatedCandidates.find((item) => selected && item.id === Number(selected.value));
+            if (!candidate) return;
+            commitMessageField.value = candidate.commit_message;
+            commitMessageField.dispatchEvent(new Event("input", {bubbles: true}));
+            commitMessageField.focus();
+        });
+    }
+    [openAIEndpointField, openAITokenField, openAIModelField].forEach((field) => {
+        field.addEventListener("change", saveOpenAISettings);
+    });
+    readOpenAISettings();
     readGenerateSettings();
     updateChatGPTLink();
     refreshStoredSelections();

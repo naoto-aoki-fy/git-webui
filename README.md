@@ -34,6 +34,7 @@ Additional behavior:
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
 - Customizable prompt generation service name and URL template, saved in local storage.
+- Direct commit-message suggestion generation through a browser-accessible OpenAI-compatible chat completions endpoint, with selectable JSON candidates.
 
 ## Repository structure
 
@@ -126,6 +127,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
 - The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
+- The OpenAI-compatible endpoint URL, authorization token, and model are configured in the frontend and saved in that browser's `localStorage`. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
 
 ## Bookmarklet
 
