@@ -256,39 +256,8 @@
         <a href=__CODEX_BOOKMARKLET_URL__>Open in git-webui</a>.
         Then open a Codex task and click the bookmarklet.
     </p>
-    <div class="field-group" style="margin-bottom: 1.5rem;">
-        <div>
-            <label for="theme_mode">Theme</label>
-            <select id="theme_mode" name="theme_mode">
-                <option value="auto">Auto (System)</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-            </select>
-        </div>
-        <div>
-            <label for="generate_service_name">Prompt generation service</label>
-            <input type="text" id="generate_service_name" value="ChatGPT" placeholder="ChatGPT">
-        </div>
-        <div>
-            <label for="generate_url_template">Prompt generation URL</label>
-            <input type="text" id="generate_url_template" value="https://chatgpt.com/#?q={message}" placeholder="https://chatgpt.com/#?q={message}">
-            <p class="subtle">Use <code>{message}</code> where the URL-encoded prompt should be inserted. These prompt generation settings are saved in your browser.</p>
-        </div>
-        <div>
-            <label for="openai_endpoint_url">OpenAI-compatible endpoint</label>
-            <input type="text" id="openai_endpoint_url" value="https://api.openai.com/v1/chat/completions" placeholder="https://api.openai.com/v1/chat/completions">
-        </div>
-        <div>
-            <label for="openai_authorization_token">Authorization Token</label>
-            <input type="password" id="openai_authorization_token" autocomplete="off" placeholder="Bearer token">
-            <p class="subtle">The endpoint and token are stored only in this browser's localStorage. The browser calls the endpoint directly, so it must allow CORS requests from this page.</p>
-        </div>
-        <div>
-            <label for="openai_model">Model</label>
-            <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
-        </div>
-    </div>    <form method="post" action="/" id="apply_form" novalidate>
-        <div>
+    <form method="post" action="/" id="apply_form" novalidate>
+        <div id="repository_group">
             <div class="field-header">
                 <label for="repository_url">Repository URL (SSH recommended)</label>
                 <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>            </div>
@@ -334,8 +303,44 @@
                     <input type="radio" name="branch_mode" value="mirror_repository">
                     Mirror Repository A to Repository B
                 </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="config">
+                    Config
+                </label>
             </div>
             <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID. Merge mode requires both branch A and branch B. Mirror mode force-updates Repository B to match Repository A.</p>
+        </div>
+        <div id="config_group" class="field-group hidden">
+            <div>
+                <label for="theme_mode">Theme</label>
+                <select id="theme_mode" name="theme_mode">
+                    <option value="auto">Auto (System)</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+            <div>
+                <label for="generate_service_name">Prompt generation service</label>
+                <input type="text" id="generate_service_name" value="ChatGPT" placeholder="ChatGPT">
+            </div>
+            <div>
+                <label for="generate_url_template">Prompt generation URL</label>
+                <input type="text" id="generate_url_template" value="https://chatgpt.com/#?q={message}" placeholder="https://chatgpt.com/#?q={message}">
+                <p class="subtle">Use <code>{message}</code> where the URL-encoded prompt should be inserted. These prompt generation settings are saved in your browser.</p>
+            </div>
+            <div>
+                <label for="openai_endpoint_url">OpenAI-compatible endpoint</label>
+                <input type="text" id="openai_endpoint_url" value="https://api.openai.com/v1/chat/completions" placeholder="https://api.openai.com/v1/chat/completions">
+            </div>
+            <div>
+                <label for="openai_authorization_token">Authorization Token</label>
+                <input type="password" id="openai_authorization_token" autocomplete="off" placeholder="Bearer token">
+                <p class="subtle">The endpoint and token are stored only in this browser's localStorage. The browser calls the endpoint directly, so it must allow CORS requests from this page.</p>
+            </div>
+            <div>
+                <label for="openai_model">Model</label>
+                <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
+            </div>
         </div>
         <div id="new_branch_group" class="hidden">
             <label for="new_branch" id="new_branch_label">New Branch Name</label>
@@ -412,7 +417,7 @@
             <p>This memo will be used as a prompt for generating a commit message.</p>
             <textarea id="pr_message" name="pr_message" placeholder="e.g., Release notes or PR summary"></textarea>
         </div>
-        <div>
+        <div id="backend_group">
             <div class="field-header">
                 <label for="backend_url">Backend URL</label>
                 <div class="field-header-actions">
@@ -451,6 +456,9 @@
     const allowEmptyCommit = document.getElementById("allow_empty_commit");
     const patchField = document.getElementById("patch");
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
+    const configGroup = document.getElementById("config_group");
+    const repositoryGroup = document.getElementById("repository_group");
+    const backendGroup = document.getElementById("backend_group");
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
     const commitIdLabel = document.getElementById("base_commit_label");
@@ -471,6 +479,7 @@
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
     const sshKeyField = document.getElementById("ssh_key_path");
+    const sshKeyGroup = document.getElementById("ssh_key_group");
     const sshKeyLabel = document.getElementById("ssh_key_label");
     const mirrorSshKeyGroup = document.getElementById("mirror_ssh_key_group");
     const mirrorSshKeyField = document.getElementById("mirror_ssh_key_path");
@@ -1075,7 +1084,13 @@
 
     const toggleCommitField = () => {
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
+        const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
+        configGroup.classList.toggle("hidden", !isConfigMode);
+        repositoryGroup.classList.toggle("hidden", isConfigMode);
+        backendGroup.classList.toggle("hidden", isConfigMode);
+        sshKeyGroup.classList.toggle("hidden", isConfigMode);
+        submitButton.classList.toggle("hidden", isConfigMode);
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
         const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
         const needsExistingBranch = selectedMode === "revert_to_commit" || selectedMode === "merge_branches";
@@ -1104,7 +1119,7 @@
         if (sshKeyLabel) {
             sshKeyLabel.textContent = isMirrorMode ? "Repository A SSH Private Key" : "SSH Private Key";
         }
-        commitIdGroup.classList.toggle("hidden", !needsCommit);
+        commitIdGroup.classList.toggle("hidden", isConfigMode || !needsCommit);
         if (needsCommit) {
             commitIdField.removeAttribute("disabled");
             commitIdField.setAttribute("required", "");
@@ -1117,7 +1132,7 @@
             commitIdField.setAttribute("disabled", "");
             commitIdField.removeAttribute("required");
         }
-        newBranchGroup.classList.toggle("hidden", !needsNewBranch);
+        newBranchGroup.classList.toggle("hidden", isConfigMode || !needsNewBranch);
         if (needsNewBranch) {
             newBranchField.removeAttribute("disabled");
             newBranchField.setAttribute("required", "");
@@ -1136,7 +1151,7 @@
             }
         }
         const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        branchGroup.classList.toggle("hidden", isMirrorMode || !(selectedMode === "default" || needsExistingBranch));
+        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode || !(selectedMode === "default" || needsExistingBranch));
         if (!isMirrorMode && (selectedMode === "default" || needsExistingBranch)) {
             branchField.removeAttribute("disabled");
             if (needsExistingBranch) {
@@ -1156,7 +1171,7 @@
             branchField.setAttribute("placeholder", "");
         }
         const isMergeMode = selectedMode === "merge_branches";
-        const noPatchMode = isMergeMode || isMirrorMode;
+        const noPatchMode = isConfigMode || isMergeMode || isMirrorMode;
         gitUserGroup.classList.toggle("hidden", hideDetails || noPatchMode);
         commitMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
         prMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
