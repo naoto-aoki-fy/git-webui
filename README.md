@@ -33,6 +33,7 @@ Additional behavior:
 - Git author identity selection from config (`user.name`, `user.email`).
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
+- Customizable prompt generation service name and URL template, saved in local storage.
 
 ## Repository structure
 
@@ -124,6 +125,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - Query/hash parameters are supported for pre-filling fields.
 - “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
+- The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
 
 ## Bookmarklet
 
