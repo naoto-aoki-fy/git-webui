@@ -1583,6 +1583,7 @@ Requirements:
 
 Output requirements:
 - Output only valid JSON, with no Markdown, code fences, explanations, or text outside the JSON.
+- Minify the JSON without unnecessary whitespace or line breaks.
 - Use exactly this structure: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.
 - Generate 2–5 candidates with sequential ids starting at 1.
 - style must be one of: short, standard, detailed, documentation-oriented, alternative.
