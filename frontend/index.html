@@ -911,16 +911,26 @@
         window.localStorage.setItem(key, JSON.stringify(values));
     };
 
-    const addStoredValue = (key, value) => {
-        const trimmed = value.trim();
-        if (!trimmed) {
+    const addStoredValues = (key, values) => {
+        const trimmedValues = values
+            .map((value) => (typeof value === "string" ? value.trim() : ""))
+            .filter((value) => value);
+        if (!trimmedValues.length) {
             return readStoredValues(key);
         }
         const existing = readStoredValues(key);
-        const nextValues = [trimmed, ...existing.filter((item) => item !== trimmed)].slice(0, MAX_STORED_VALUES);
-        writeStoredValues(key, nextValues);
-        return nextValues;
+        const nextValues = [];
+        [...trimmedValues, ...existing].forEach((value) => {
+            if (!nextValues.includes(value)) {
+                nextValues.push(value);
+            }
+        });
+        const limitedValues = nextValues.slice(0, MAX_STORED_VALUES);
+        writeStoredValues(key, limitedValues);
+        return limitedValues;
     };
+
+    const addStoredValue = (key, value) => addStoredValues(key, [value]);
 
     const renderStoredOptions = (values, datalist) => {
         if (datalist) {
@@ -940,7 +950,10 @@
     };
 
     const persistStoredSelections = () => {
-        const repoValues = addStoredValue(REPOSITORY_STORAGE_KEY, repositoryField.value);
+        const repoValues = addStoredValues(REPOSITORY_STORAGE_KEY, [
+            repositoryField.value,
+            mirrorRepositoryField ? mirrorRepositoryField.value : "",
+        ]);
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
         renderStoredOptions(repoValues, repositoryHistoryList);
         renderStoredOptions(branchValues, branchHistoryList);
