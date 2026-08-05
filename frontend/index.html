@@ -138,6 +138,13 @@
             font-weight: 500;
             margin-bottom: 0;
         }
+        .mode-detail {
+            color: var(--text-subtle);
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 400;
+            margin-left: 1.5rem;
+        }
         .subtle {
             color: var(--text-subtle);
             font-size: 0.9rem;
@@ -299,27 +306,29 @@
             <div class="toggle-group" role="radiogroup" aria-label="Mode">
                 <label>
                     <input type="radio" name="branch_mode" value="default" checked>
-                    Default behavior (checkout when a branch is specified)
+                    Patch
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="from_commit">
-                    Create a new branch from the specified commit
+                    New branch
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="orphan">
-                    Create an orphan branch
+                    Orphan branch
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="revert_to_commit">
-                    Reset an existing branch to the specified commit and force-push
+                    Hard reset to commit
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="merge_branches">
-                    Merge branch B into branch A (fast-forward only; deletes branch B after success)
+                    Merge
+                    <span class="mode-detail">B into A, fast-forward only, deletes branch B after success</span>
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="mirror_repository">
-                    Mirror Repository A to Repository B
+                    Mirror
+                    <span class="mode-detail">A to B</span>
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="config">
