@@ -138,13 +138,6 @@
             font-weight: 500;
             margin-bottom: 0;
         }
-        .mode-detail {
-            color: var(--text-subtle);
-            display: block;
-            font-size: 0.75rem;
-            font-weight: 400;
-            margin-left: 1.5rem;
-        }
         .subtle {
             color: var(--text-subtle);
             font-size: 0.9rem;
@@ -323,19 +316,17 @@
                 <label>
                     <input type="radio" name="branch_mode" value="merge_branches">
                     Merge
-                    <span class="mode-detail">B into A, fast-forward only, deletes branch B after success</span>
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="mirror_repository">
                     Mirror
-                    <span class="mode-detail">A to B</span>
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="config">
                     Config
                 </label>
             </div>
-            <p class="subtle">A new branch name is required for commit-based or orphan modes. Revert mode requires an existing branch and commit ID. Merge mode requires both branch A and branch B. Mirror mode force-updates Repository B to match Repository A.</p>
+            <p class="subtle" id="mode_description">Apply a patch to the selected branch and create a commit.</p>
         </div>
         <div id="config_group" class="field-group hidden">
             <div>
@@ -488,6 +479,17 @@
     const allowEmptyCommit = document.getElementById("allow_empty_commit");
     const patchField = document.getElementById("patch");
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
+    const modeDescription = document.getElementById("mode_description");
+
+    const branchModeDescriptions = {
+        default: "Apply a patch to the selected branch and create a commit.",
+        from_commit: "Create a new branch from a base commit ID.",
+        orphan: "Create a new orphan branch with no parent history.",
+        revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
+        merge_branches: "Fast-forward Branch A to Branch B, then delete Branch B after success.",
+        mirror_repository: "Mirror Repository A to Repository B with git push --mirror; Repository B refs missing from Repository A may be deleted.",
+        config: "Configure backend and OpenAI settings without applying repository changes.",
+    };
     const configGroup = document.getElementById("config_group");
     const repositoryGroup = document.getElementById("repository_group");
     const backendGroup = document.getElementById("backend_group");
@@ -1119,6 +1121,9 @@
 
     const toggleCommitField = () => {
         const selectedMode = document.querySelector("input[name='branch_mode']:checked").value;
+        if (modeDescription) {
+            modeDescription.textContent = branchModeDescriptions[selectedMode] || branchModeDescriptions.default;
+        }
         const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
         configGroup.classList.toggle("hidden", !isConfigMode);
