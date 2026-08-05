@@ -1123,7 +1123,7 @@
         const isMirrorMode = selectedMode === "mirror_repository";
         configGroup.classList.toggle("hidden", !isConfigMode);
         repositoryGroup.classList.toggle("hidden", isConfigMode);
-        backendGroup.classList.toggle("hidden", isConfigMode);
+        backendGroup.classList.toggle("hidden", !isConfigMode);
         sshKeyGroup.classList.toggle("hidden", isConfigMode);
         submitButton.classList.toggle("hidden", isConfigMode);
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
