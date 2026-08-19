@@ -25,7 +25,6 @@ class OrphanEmptyRepoTests(unittest.TestCase):
             repository_url = str(remote_dir)
             repo_root.mkdir()
             app_config = {
-                "ssh_keys": [],
                 "git_users": [{"name": "Test User", "email": "test@example.com"}],
             }
             with (

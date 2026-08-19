@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- SSH key selection from config (sets `GIT_SSH_COMMAND`).
+- GitHub account selection from users authenticated with the GitHub CLI.
 - Git author identity selection from config (`user.name`, `user.email`).
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
@@ -43,7 +43,7 @@ backend/app.py              # aiohttp backend server and git orchestration
 frontend/index.html         # static single-page UI
 bookmarklet/codex.js        # readable source bookmarklet script
 bookmarklet/codex-js-url.txt# URL-encoded bookmarklet payload
-config-sample.toml          # sample ssh_keys / git_users config
+config-sample.toml          # sample git_users config
 requirements.txt            # Python dependency list
 ```
 
@@ -51,7 +51,7 @@ requirements.txt            # Python dependency list
 
 - Python 3.11+ (uses `tomllib` from the standard library).
 - Git installed and available on `PATH`.
-- SSH client available if using SSH remotes.
+- GitHub CLI (`gh`) authenticated for every GitHub account you want to use.
 
 Install backend dependency:
 
@@ -67,13 +67,8 @@ Copy the sample config and edit values for your machine:
 cp config-sample.toml config.toml
 ```
 
-`config.toml` supports two lists:
+`config.toml` supports one list:
 
-- `[[ssh_keys]]`: selectable SSH private keys.
-  - `label` (display name)
-  - `path` (private key path)
-  - `default` (optional, boolean)
-  - `default_repositories` (optional list used by frontend defaults; for SSH URLs such as `git@github.com:owner/repo.git`, entries are matched against the `owner` segment exactly; useful when mirroring Repository A to Repository B with different SSH keys)
 - `[[git_users]]`: selectable Git commit identities.
   - `label` (display name)
   - `name`
@@ -124,7 +119,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 
 - The backend endpoint is configured in the UI as a backend base URL. The frontend calls `${base}/events` for SSE and `${base}/submit`, `${base}/config`, `${base}/health` for HTTP.
 - Query/hash parameters are supported for pre-filling fields.
-- “Open on GitHub” appears for `git@github.com:owner/repo(.git)` format repository URLs.
+- “Open on GitHub” appears for `https://github.com/owner/repo(.git)` repository URLs.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
 - The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
 - The OpenAI-compatible endpoint URL, authorization token, and model are configured in the frontend and saved in that browser's `localStorage`. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
@@ -142,6 +137,6 @@ A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main
 ## Limitations and caveats
 
 - No authentication layer is built into the backend; run only in trusted environments.
-- Git operations are executed on the server host, so filesystem/SSH permissions of that host apply.
+- GitHub operations use HTTPS and the selected account from `gh auth status --json hosts`; SSH remotes are rejected.
 - The backend keeps per-repository cached clones under `--repo-root`.
 - This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.

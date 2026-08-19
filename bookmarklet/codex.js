@@ -409,7 +409,7 @@
     baseUrl +
     "#?" +
     "repository_url=" +
-    encodeURIComponent("git@github.com:" + repo) +
+    encodeURIComponent("https://github.com/" + repo + ".git") +
     "&branch=" +
     encodeURIComponent(branchName) +
     "&branch_mode=default" +
