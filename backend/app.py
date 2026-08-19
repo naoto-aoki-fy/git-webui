@@ -14,7 +14,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from pathlib import PureWindowsPath
 from typing import Awaitable, Callable, Dict, List, Optional, Set
 import traceback
 
@@ -45,7 +44,7 @@ CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 def _load_config(config_path: Path) -> Dict[str, object]:
     if not config_path.exists():
-        return {"ssh_keys": [], "git_users": []}
+        return {"git_users": []}
 
     with config_path.open("rb") as config_file:
         try:
@@ -53,15 +52,14 @@ def _load_config(config_path: Path) -> Dict[str, object]:
         except tomllib.TOMLDecodeError as exc:  # noqa: BLE001
             raise RuntimeError(f"Failed to parse configuration file {config_path}: {exc}") from exc
 
-    ssh_keys = data.get("ssh_keys", [])
     git_users = data.get("git_users", [])
-    if not isinstance(ssh_keys, list) or not isinstance(git_users, list):
-        raise RuntimeError("Configuration file must define 'ssh_keys' and 'git_users' as lists")
+    if not isinstance(git_users, list):
+        raise RuntimeError("Configuration file must define 'git_users' as a list")
 
-    return {"ssh_keys": ssh_keys, "git_users": git_users}
+    return {"git_users": git_users}
 
 
-APP_CONFIG = {"ssh_keys": [], "git_users": []}
+APP_CONFIG = {"git_users": []}
 
 
 def _resolve_cors_allow_origin() -> List[str]:
@@ -357,6 +355,51 @@ async def run_command(
     return CommandResult(process.returncode, stdout_text, stderr_text)
 
 
+_GH_AUTH_LOCK = asyncio.Lock()
+
+
+def _parse_gh_hosts(output: str) -> tuple[List[str], Optional[str]]:
+    try:
+        hosts = json.loads(output).get("hosts", {})
+    except (json.JSONDecodeError, AttributeError) as exc:
+        raise RuntimeError("Unable to parse gh authentication status") from exc
+    accounts = hosts.get("github.com", []) if isinstance(hosts, dict) else []
+    users = [account.get("login", "") for account in accounts if isinstance(account, dict) and account.get("login")]
+    active = next((account.get("login") for account in accounts if isinstance(account, dict) and account.get("active") is True), None)
+    return users, active
+
+
+async def _gh_auth_status(log: Optional[LogSink] = None) -> tuple[List[str], Optional[str]]:
+    result = await run_command("gh", "auth", "status", "--json", "hosts", log=log)
+    # gh returns a non-zero status when no account is logged in, while still
+    # emitting the requested valid JSON (`{"hosts": {}}`).
+    return _parse_gh_hosts(result.stdout)
+
+
+async def _get_github_users() -> List[str]:
+    users, _ = await _gh_auth_status()
+    return users
+
+
+async def _run_network_git_command(git_args: List[str], username: str, cwd: Optional[Path], env: Optional[Dict[str, str]], log: Optional[LogSink]) -> CommandResult:
+    async with _GH_AUTH_LOCK:
+        users, active = await _gh_auth_status(log)
+        if username not in users:
+            raise RuntimeError(f"GitHub user is not authenticated: {username}")
+        switched = active != username
+        if switched:
+            result = await run_command("gh", "auth", "switch", "--hostname", "github.com", "--user", username, log=log)
+            if result.returncode != 0:
+                raise RuntimeError(f"Failed to switch GitHub authentication to {username}")
+        try:
+            return await run_command("git", *GIT_COMMON_OPTIONS, *git_args, cwd=cwd, env=env, log=log)
+        finally:
+            if switched and active:
+                restore = await run_command("gh", "auth", "switch", "--hostname", "github.com", "--user", active, log=log)
+                if restore.returncode != 0:
+                    raise RuntimeError(f"Failed to restore GitHub authentication to {active}")
+
+
 async def run_git_command(
     *cmd: str,
     cwd: Optional[Path] = None,
@@ -375,7 +418,11 @@ async def run_git_command(
             continue
         idx += 1
 
-    return await run_command("git", *GIT_COMMON_OPTIONS, *git_args, cwd=cwd, env=env, log=log)
+    command_env = env.copy() if env is not None else None
+    github_username = command_env.pop("GIT_WEBUI_GITHUB_USERNAME", "") if command_env is not None else ""
+    if github_username and git_args and git_args[0] in {"clone", "fetch", "pull", "push"}:
+        return await _run_network_git_command(git_args, github_username, cwd, command_env, log)
+    return await run_command("git", *GIT_COMMON_OPTIONS, *git_args, cwd=cwd, env=command_env, log=log)
 
 
 def _timestamped(message: str) -> str:
@@ -387,12 +434,6 @@ def _log_debug(logs: Optional[LogSink], message: str) -> None:
     if logs is None:
         return
     logs.append(_timestamped(f"DEBUG: {message}"))
-
-
-def _format_ssh_key_arg(raw_path: str, resolved_path: Path) -> str:
-    if "\\" in raw_path or ":" in raw_path:
-        return shlex.quote(PureWindowsPath(raw_path).as_posix())
-    return shlex.quote(str(resolved_path))
 
 
 async def _git_ref_exists(
@@ -796,57 +837,11 @@ def _normalize_repository_identifier(value: str) -> str:
     return trimmed.strip("/").removesuffix(".git").lower()
 
 
-def _repository_owner_for_ssh_key_default(value: str) -> str:
-    normalized = _normalize_repository_identifier(value)
-    if not normalized:
-        return ""
-    parts = [part for part in normalized.split("/") if part]
-    if len(parts) >= 3:
-        return parts[1]
-    if len(parts) >= 2:
-        return parts[0]
-    return parts[0] if parts else ""
-
-
-def _find_default_ssh_key_index_for_repository(repository_url: str) -> Optional[int]:
-    repository_owner = _repository_owner_for_ssh_key_default(repository_url)
-    if not repository_owner:
-        return _find_default_index(APP_CONFIG["ssh_keys"])
-    for idx, entry in enumerate(APP_CONFIG["ssh_keys"]):
-        default_repos = entry.get("default_repositories", [])
-        if not isinstance(default_repos, list):
-            continue
-        for repo_value in default_repos:
-            if not isinstance(repo_value, str):
-                continue
-            default_repo_owner = _repository_owner_for_ssh_key_default(repo_value)
-            if default_repo_owner and default_repo_owner == repository_owner:
-                return idx
-    return _find_default_index(APP_CONFIG["ssh_keys"])
-
-
-def _resolve_ssh_env(ssh_key_selection: str, logs: Optional[LogSink], label: str = "") -> Dict[str, str]:
-    env = os.environ.copy()
-    if not ssh_key_selection:
-        _log_debug(logs, f"No SSH key selected for {label or 'repository'}; using default SSH configuration.")
-        return env
-    try:
-        key_idx = int(ssh_key_selection)
-        key_entry = APP_CONFIG["ssh_keys"][key_idx]
-        raw_ssh_key_path = key_entry.get("path", "")
-        ssh_key_path = Path(raw_ssh_key_path).expanduser()
-    except (ValueError, IndexError):
-        raise RuntimeError(f"Invalid SSH key selection for {label or 'repository'}") from None
-
-    if not ssh_key_path.exists():
-        raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
-
-    ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
-    env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
-    if logs is not None:
-        logs.append(_timestamped(f"Using SSH key for {label or 'repository'}: {ssh_key_path}"))
-    _log_debug(logs, f"GIT_SSH_COMMAND set for {label or 'repository'}: {env['GIT_SSH_COMMAND']}")
-    return env
+def _is_supported_repository_url(value: str) -> bool:
+    """Accept local paths for testing/self-hosting, but require HTTPS for URLs."""
+    if "://" in value:
+        return value.lower().startswith("https://")
+    return re.match(r"^(?:[^@]+@)?[^:]+:.+$", value) is None
 
 
 def _display_label(entry: Dict[str, str], fallback: str) -> str:
@@ -856,24 +851,7 @@ def _display_label(entry: Dict[str, str], fallback: str) -> str:
     return fallback
 
 
-def _serialize_config() -> Dict[str, object]:
-    ssh_keys = []
-    for entry in APP_CONFIG["ssh_keys"]:
-        label = _display_label(entry, entry.get("path", "Unknown Key"))
-        default_repos = entry.get("default_repositories", [])
-        if not isinstance(default_repos, list):
-            default_repos = []
-        ssh_keys.append(
-            {
-                "label": label,
-                "default": entry.get("default") is True,
-                "default_repositories": [
-                    repo.strip()
-                    for repo in default_repos
-                    if isinstance(repo, str) and repo.strip()
-                ],
-            }
-        )
+def _serialize_config(github_users: List[str]) -> Dict[str, object]:
     git_users = []
     for entry in APP_CONFIG["git_users"]:
         name = entry.get("name", "")
@@ -897,9 +875,8 @@ def _serialize_config() -> Dict[str, object]:
             }
         )
     return {
-        "ssh_keys": ssh_keys,
+        "github_users": github_users,
         "git_users": git_users,
-        "default_ssh_key_index": _find_default_index(APP_CONFIG["ssh_keys"]),
         "default_git_user_index": _find_default_index(APP_CONFIG["git_users"]),
     }
 
@@ -920,8 +897,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
-    ssh_key_selection = form.get("ssh_key_path", "").strip()
-    mirror_ssh_key_selection = form.get("mirror_ssh_key_path", "").strip()
+    github_username = form.get("github_username", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
     base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
@@ -940,8 +916,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
-    _log_debug(logs, f"Parsed ssh_key selection='{ssh_key_selection or '(none)'}'.")
-    _log_debug(logs, f"Parsed mirror SSH key selection='{mirror_ssh_key_selection or '(none)'}'.")
+    _log_debug(logs, f"Parsed GitHub username='{github_username or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
@@ -955,8 +930,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "commit_message": commit_message,
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
-        "ssh_key_selection": ssh_key_selection,
-        "mirror_ssh_key_selection": mirror_ssh_key_selection,
+        "github_username": github_username,
         "branch_mode": branch_mode,
         "base_commit": base_commit,
     }
@@ -980,6 +954,12 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     if not repository_url:
         _log_debug(logs, "Repository URL missing.")
         logs.append(_timestamped("Repository URL is required."))
+        return {"form_values": form_values, "success": False}
+    if not _is_supported_repository_url(repository_url):
+        logs.append(_timestamped("Repository URL must use HTTPS; SSH remotes are not supported."))
+        return {"form_values": form_values, "success": False}
+    if mirror_repository_url and not _is_supported_repository_url(mirror_repository_url):
+        logs.append(_timestamped("Repository B URL must use HTTPS; SSH remotes are not supported."))
         return {"form_values": form_values, "success": False}
 
     if branch_mode not in {"from_commit", "revert_to_commit", "merge_branches", "mirror_repository"} and not patch_content.strip() and not allow_empty_commit:
@@ -1021,18 +1001,18 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Branch A and Branch B must be different for merge mode."))
         return {"form_values": form_values, "success": False}
 
-    ssh_key_path: Optional[Path] = None
-
     try:
         with _temporary_workspace(logs) as workdir:
             repo_dir = _repo_workspace_for_url(repository_url)
             env = os.environ.copy()
+            if github_username:
+                env["GIT_WEBUI_GITHUB_USERNAME"] = github_username
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
             _log_debug(logs, f"Repository directory will be {repo_dir}.")
 
             if branch_mode == "mirror_repository":
-                source_env = _resolve_ssh_env(ssh_key_selection, logs, "Repository A")
-                target_env = _resolve_ssh_env(mirror_ssh_key_selection, logs, "Repository B")
+                source_env = env.copy()
+                target_env = env.copy()
                 mirror_dir = workdir / "mirror.git"
                 logs.append(_timestamped(f"Cloning Repository A as a mirror: {repository_url}"))
                 clone_result = await run_git_command(
@@ -1059,25 +1039,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped("Repository A was mirrored to Repository B successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}
-
-            if ssh_key_selection:
-                try:
-                    key_idx = int(ssh_key_selection)
-                    key_entry = APP_CONFIG["ssh_keys"][key_idx]
-                    raw_ssh_key_path = key_entry.get("path", "")
-                    ssh_key_path = Path(raw_ssh_key_path).expanduser()
-                except (ValueError, IndexError):
-                    raise RuntimeError("Invalid SSH key selection") from None
-
-                if not ssh_key_path or not ssh_key_path.exists():
-                    raise RuntimeError(f"SSH key path not found: {ssh_key_path}")
-
-                ssh_key_arg = _format_ssh_key_arg(raw_ssh_key_path, ssh_key_path)
-                env["GIT_SSH_COMMAND"] = f"ssh -i {ssh_key_arg} -o StrictHostKeyChecking=no"
-                logs.append(_timestamped(f"Using SSH key: {ssh_key_path}"))
-                _log_debug(logs, f"GIT_SSH_COMMAND set to: {env['GIT_SSH_COMMAND']}")
-            else:
-                _log_debug(logs, "No SSH key selected; using default SSH configuration.")
 
             repo_prepared = False
             default_branch = ""
@@ -1633,7 +1594,7 @@ async def submit_mirror_repository_handler(request: web.Request) -> web.Response
 
 
 async def config_handler(_: web.Request) -> web.Response:
-    return web.json_response({"payload": _serialize_config()})
+    return web.json_response({"payload": _serialize_config(await _get_github_users())})
 
 
 async def health_handler(_: web.Request) -> web.Response:

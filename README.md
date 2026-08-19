@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- SSH key selection from config (sets `GIT_SSH_COMMAND`).
+- GitHub account selection from `gh auth status --json hosts`, with temporary account switching for HTTPS Git operations.
 - Git author identity selection from config (`user.name`, `user.email`).
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values/history and backend URL.
@@ -43,7 +43,7 @@ backend/app.py              # aiohttp backend server and git orchestration
 frontend/index.html         # static single-page UI
 bookmarklet/codex.js        # readable source bookmarklet script
 bookmarklet/codex-js-url.txt# URL-encoded bookmarklet payload
-config-sample.toml          # sample ssh_keys / git_users config
+config-sample.toml          # sample git_users config
 requirements.txt            # Python dependency list
 ```
 
@@ -51,7 +51,7 @@ requirements.txt            # Python dependency list
 
 - Python 3.11+ (uses `tomllib` from the standard library).
 - Git installed and available on `PATH`.
-- SSH client available if using SSH remotes.
+- GitHub CLI (`gh`) installed with the required GitHub accounts authenticated.
 
 Install backend dependency:
 
@@ -67,14 +67,7 @@ Copy the sample config and edit values for your machine:
 cp config-sample.toml config.toml
 ```
 
-`config.toml` supports two lists:
-
-- `[[ssh_keys]]`: selectable SSH private keys.
-  - `label` (display name)
-  - `path` (private key path)
-  - `default` (optional, boolean)
-  - `default_repositories` (optional list used by frontend defaults; for SSH URLs such as `git@github.com:owner/repo.git`, entries are matched against the `owner` segment exactly; useful when mirroring Repository A to Repository B with different SSH keys)
-- `[[git_users]]`: selectable Git commit identities.
+`config.toml` supports a `[[git_users]]` list: selectable Git commit identities.
   - `label` (display name)
   - `name`
   - `email`
@@ -142,6 +135,6 @@ A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main
 ## Limitations and caveats
 
 - No authentication layer is built into the backend; run only in trusted environments.
-- Git operations are executed on the server host, so filesystem/SSH permissions of that host apply.
+- Git operations are executed on the server host, so filesystem permissions and GitHub CLI authentication on that host apply.
 - The backend keeps per-repository cached clones under `--repo-root`.
 - This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.

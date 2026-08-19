@@ -277,7 +277,7 @@
     <form method="post" action="/" id="apply_form" novalidate>
         <div id="repository_group">
             <div class="field-header">
-                <label for="repository_url">Repository URL (SSH recommended)</label>
+                <label for="repository_url">Repository URL</label>
                 <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>            </div>
             <div class="field-group">
                 <input type="text" id="repository_url" name="repository_url" required list="repository_history">
@@ -369,7 +369,7 @@
             <input type="text" id="base_commit" name="base_commit">
         </div>
         <div id="git_user_group">
-            <label for="git_user">Git User (Name &amp; Email)</label>
+            <label for="git_user">Git Author (Commiter)</label>
             <select id="git_user" name="git_user">
                 <option value="">Loading git users...</option>
             </select>
@@ -411,16 +411,10 @@
                 Empty Commit
             </label>
         </div>
-        <div id="ssh_key_group">
-            <label for="ssh_key_path" id="ssh_key_label">SSH Private Key</label>
-            <select id="ssh_key_path" name="ssh_key_path">
-                <option value="">Loading SSH keys...</option>
-            </select>
-        </div>
-        <div id="mirror_ssh_key_group" class="hidden">
-            <label for="mirror_ssh_key_path">Repository B SSH Private Key</label>
-            <select id="mirror_ssh_key_path" name="mirror_ssh_key_path">
-                <option value="">Loading SSH keys...</option>
+        <div id="github_username_group">
+            <label for="github_username">GitHub Username</label>
+            <select id="github_username" name="github_username">
+                <option value="">Loading GitHub users...</option>
             </select>
         </div>
         <div id="patch_group">
@@ -512,11 +506,8 @@
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
-    const sshKeyField = document.getElementById("ssh_key_path");
-    const sshKeyGroup = document.getElementById("ssh_key_group");
-    const sshKeyLabel = document.getElementById("ssh_key_label");
-    const mirrorSshKeyGroup = document.getElementById("mirror_ssh_key_group");
-    const mirrorSshKeyField = document.getElementById("mirror_ssh_key_path");
+    const githubUsernameField = document.getElementById("github_username");
+    const githubUsernameGroup = document.getElementById("github_username_group");
     const openRepositoryButton = document.getElementById("open_repository");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
@@ -616,8 +607,7 @@
     let logStream = null;
     let activeClientId = null;
     let gitUserConfig = [];
-    let sshKeyConfig = [];
-    let defaultSshKeyIndex = null;
+    let githubUsers = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let lastCopiedPatchValue = "";
@@ -993,9 +983,8 @@
         commit_message: commitMessageField.value,
         pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
-        ssh_key_path: sshKeyField.value,
+        github_username: githubUsernameField.value,
         mirror_repository_url: mirrorRepositoryField ? mirrorRepositoryField.value : "",
-        mirror_ssh_key_path: mirrorSshKeyField ? mirrorSshKeyField.value : "",
         patch: patchField.value,
     });
 
@@ -1030,9 +1019,8 @@
         if (typeof draft.allow_empty_commit === "boolean") {
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
-        applyDraftValue(sshKeyField, draft.ssh_key_path);
+        applyDraftValue(githubUsernameField, draft.github_username);
         applyDraftValue(mirrorRepositoryField, draft.mirror_repository_url);
-        applyDraftValue(mirrorSshKeyField, draft.mirror_ssh_key_path);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
@@ -1142,7 +1130,7 @@
         configGroup.classList.toggle("hidden", !isConfigMode);
         repositoryGroup.classList.toggle("hidden", isConfigMode);
         backendGroup.classList.toggle("hidden", !isConfigMode);
-        sshKeyGroup.classList.toggle("hidden", isConfigMode);
+        githubUsernameGroup.classList.toggle("hidden", isConfigMode);
         submitButton.classList.toggle("hidden", isConfigMode);
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
         const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
@@ -1158,19 +1146,6 @@
                 mirrorRepositoryField.setAttribute("disabled", "");
                 mirrorRepositoryField.removeAttribute("required");
             }
-        }
-        if (mirrorSshKeyGroup) {
-            mirrorSshKeyGroup.classList.toggle("hidden", !isMirrorMode);
-        }
-        if (mirrorSshKeyField) {
-            if (isMirrorMode) {
-                mirrorSshKeyField.removeAttribute("disabled");
-            } else {
-                mirrorSshKeyField.setAttribute("disabled", "");
-            }
-        }
-        if (sshKeyLabel) {
-            sshKeyLabel.textContent = isMirrorMode ? "Repository A SSH Private Key" : "SSH Private Key";
         }
         commitIdGroup.classList.toggle("hidden", isConfigMode || !needsCommit);
         if (needsCommit) {
@@ -1253,7 +1228,7 @@
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
-        applyDefaultSshKeys();
+        applyDefaultGithubUserForRepository();
     };
 
     const resetSelect = (select, message) => {
@@ -1303,53 +1278,17 @@
         return parts.length > 0 ? parts[parts.length - 1] : normalized;
     };
 
-    const getRepositoryOwnerForSshKeyDefault = (value) => {
+    const getRepositoryOwner = (value) => {
         const normalized = normalizeRepository(value);
-        if (!normalized) {
-            return "";
-        }
         const parts = normalized.split("/").filter(Boolean);
-        if (parts.length >= 3) {
-            return parts[1];
-        }
-        if (parts.length >= 2) {
-            return parts[0];
-        }
-        return parts.length > 0 ? parts[0] : "";
+        return parts.length >= 3 ? parts[1] : (parts[0] || "");
     };
 
-    const findDefaultSshKeyIndexForRepo = (repositoryUrl) => {
-        const repositoryOwner = getRepositoryOwnerForSshKeyDefault(repositoryUrl);
-        if (!repositoryOwner) {
-            return defaultSshKeyIndex;
-        }
-        for (let idx = 0; idx < sshKeyConfig.length; idx += 1) {
-            const entry = sshKeyConfig[idx];
-            const defaults = Array.isArray(entry.default_repositories) ? entry.default_repositories : [];
-            for (const repoValue of defaults) {
-                const defaultRepoOwner = getRepositoryOwnerForSshKeyDefault(repoValue);
-                if (defaultRepoOwner && defaultRepoOwner === repositoryOwner) {
-                    return idx;
-                }
-            }
-        }
-        return defaultSshKeyIndex;
-    };
-
-    const applyDefaultSshKeyForRepository = (field, repositoryUrl) => {
-        if (!field || field.hasAttribute("disabled")) {
-            return;
-        }
-        const matchIndex = findDefaultSshKeyIndexForRepo(repositoryUrl);
-        if (typeof matchIndex === "number" && sshKeyConfig[matchIndex]) {
-            field.value = String(matchIndex);
-        }
-    };
-
-    const applyDefaultSshKeys = () => {
-        applyDefaultSshKeyForRepository(sshKeyField, repositoryField.value);
-        if (mirrorRepositoryField) {
-            applyDefaultSshKeyForRepository(mirrorSshKeyField, mirrorRepositoryField.value);
+    const applyDefaultGithubUserForRepository = () => {
+        const owner = getRepositoryOwner(repositoryField.value).toLowerCase();
+        const match = githubUsers.find((username) => username.toLowerCase() === owner);
+        if (match) {
+            githubUsernameField.value = match;
         }
     };
 
@@ -1388,45 +1327,32 @@
     };
 
     const populateConfig = (payload) => {
-        if (!payload) {
-            return;
-        }
-        const sshKeys = Array.isArray(payload.ssh_keys) ? payload.ssh_keys : [];
+        if (!payload) return;
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
+        githubUsers = Array.isArray(payload.github_users) ? payload.github_users : [];
         gitUserConfig = gitUsers;
-        sshKeyConfig = sshKeys;
-        sshKeyField.innerHTML = "";
-        if (mirrorSshKeyField) {
-            mirrorSshKeyField.innerHTML = "";
-        }
-        if (sshKeys.length === 0) {
-            resetSelect(sshKeyField, "(No SSH keys configured)");
-            resetSelect(mirrorSshKeyField, "(No SSH keys configured)");
+        githubUsernameField.innerHTML = "";
+        if (githubUsers.length === 0) {
+            resetSelect(githubUsernameField, "(No authenticated GitHub users)");
         } else {
-            sshKeys.forEach((entry, idx) => {
+            githubUsers.forEach((username) => {
                 const option = document.createElement("option");
-                option.value = String(idx);
-                option.textContent = entry.label || "Unknown Key";
-                sshKeyField.appendChild(option);
-                if (mirrorSshKeyField) {
-                    mirrorSshKeyField.appendChild(option.cloneNode(true));
-                }
+                option.value = username;
+                option.textContent = username;
+                githubUsernameField.appendChild(option);
             });
         }
         gitUserField.innerHTML = "";
         if (gitUsers.length === 0) {
-            resetSelect(gitUserField, "(No Git users configured)");
+            resetSelect(gitUserField, "(No Git authors configured)");
         } else {
             gitUsers.forEach((entry, idx) => {
                 const option = document.createElement("option");
                 option.value = String(idx);
-                option.textContent = entry.label || "Unknown User";
+                option.textContent = entry.label || "Unknown Author";
                 gitUserField.appendChild(option);
             });
         }
-        const defaultSshIndex = payload.default_ssh_key_index;
-        defaultSshKeyIndex = typeof defaultSshIndex === "number" && sshKeys[defaultSshIndex] ? defaultSshIndex : null;
-        applyDefaultSshKeys();
         defaultGitUserIndex = payload.default_git_user_index;
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
             gitUserField.value = String(defaultGitUserIndex);
@@ -1434,7 +1360,7 @@
             defaultGitUserIndex = null;
         }
         applyDefaultGitUserForRepository();
-        applyDefaultSshKeys();
+        applyDefaultGithubUserForRepository();
     };
 
     const fetchConfig = async () => {
@@ -1449,8 +1375,8 @@
             updateBackendStatus("connected", "connected");
         } catch (error) {
             console.error("Failed to load backend config", error);
-            resetSelect(sshKeyField, "(Unable to load SSH keys)");
-            resetSelect(gitUserField, "(Unable to load Git users)");
+            resetSelect(githubUsernameField, "(Unable to load GitHub users)");
+            resetSelect(gitUserField, "(Unable to load Git authors)");
             updateBackendStatus("error", "config error");
         }
     };
@@ -1490,14 +1416,14 @@
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
-        repositoryField.addEventListener("input", applyDefaultSshKeys);
-        repositoryField.addEventListener("change", applyDefaultSshKeys);
+        repositoryField.addEventListener("input", applyDefaultGithubUserForRepository);
+        repositoryField.addEventListener("change", applyDefaultGithubUserForRepository);
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
     }
     if (mirrorRepositoryField) {
-        mirrorRepositoryField.addEventListener("input", applyDefaultSshKeys);
-        mirrorRepositoryField.addEventListener("change", applyDefaultSshKeys);
+        mirrorRepositoryField.addEventListener("input", applyDefaultGithubUserForRepository);
+        mirrorRepositoryField.addEventListener("change", applyDefaultGithubUserForRepository);
     }
     if (branchField) {
         branchField.addEventListener("input", updateRepositoryLinkButton);
@@ -1945,8 +1871,8 @@ Output requirements:
             const allowEmptyValue = (queryParams.get("allow_empty_commit") || "").toLowerCase();
             allowEmptyCommit.checked = ["true", "1", "yes", "on"].includes(allowEmptyValue);
         }
-        if (queryParams.has("ssh_key_path")) {
-            sshKeyField.value = queryParams.get("ssh_key_path") || "";
+        if (queryParams.has("github_username")) {
+            githubUsernameField.value = queryParams.get("github_username") || "";
         }
         if (queryParams.has("patch")) {
             const patchParam = queryParams.get("patch") || "";
@@ -1955,7 +1881,7 @@ Output requirements:
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
-        applyDefaultSshKeys();
+        applyDefaultGithubUserForRepository();
         updateRepositoryLinkButton();
         const cleanHash = querySource === "hash" ? "" : window.location.hash;
         const cleanUrl = window.location.pathname + cleanHash;
