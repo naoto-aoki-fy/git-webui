@@ -228,6 +228,33 @@
             padding: 1rem;
             background: var(--bg-input);
         }
+        .candidate-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .candidate-panel-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+        .candidate-panel-toggle::after {
+            content: "\25B2";
+            font-size: 0.8rem;
+        }
+        .candidate-panel-toggle[aria-expanded="false"]::after {
+            content: "\25BC";
+        }
         .candidate-list {
             display: grid;
             gap: 0.75rem;
@@ -394,15 +421,22 @@
             </div>
             <textarea id="commit_message" name="commit_message" placeholder="e.g., Apply patch from Web UI"></textarea>
             <div id="commit_candidate_panel" class="candidate-panel hidden" aria-live="polite">
-                <strong>Commit message suggestions</strong>
-                <p id="commit_candidate_status" class="subtle"></p>
-                <div id="commit_candidate_progress" class="candidate-progress hidden">
-                    <p class="subtle">Generated characters: <strong id="commit_candidate_character_count">0</strong></p>
-                    <strong>Raw JSON</strong>
-                    <pre id="commit_candidate_raw_json"></pre>
+                <div class="candidate-panel-header">
+                    <button type="button" class="candidate-panel-toggle" id="commit_candidate_toggle"
+                            aria-expanded="true" aria-controls="commit_candidate_content">
+                        <strong>Commit message suggestions</strong>
+                    </button>
                 </div>
-                <div id="commit_candidate_list" class="candidate-list"></div>
-                <button type="button" class="button secondary" id="use_commit_candidate">Use selected suggestion</button>
+                <div id="commit_candidate_content">
+                    <p id="commit_candidate_status" class="subtle"></p>
+                    <div id="commit_candidate_progress" class="candidate-progress hidden">
+                        <p class="subtle">Generated characters: <strong id="commit_candidate_character_count">0</strong></p>
+                        <strong>Raw JSON</strong>
+                        <pre id="commit_candidate_raw_json"></pre>
+                    </div>
+                    <div id="commit_candidate_list" class="candidate-list"></div>
+                    <button type="button" class="button secondary" id="use_commit_candidate">Use selected suggestion</button>
+                </div>
             </div>
         </div>
         <div id="allow_empty_group">
@@ -529,6 +563,8 @@
     const openAIModelField = document.getElementById("openai_model");
     const generateCandidatesButton = document.getElementById("generate_commit_candidates");
     const candidatePanel = document.getElementById("commit_candidate_panel");
+    const candidateToggle = document.getElementById("commit_candidate_toggle");
+    const candidateContent = document.getElementById("commit_candidate_content");
     const candidateStatus = document.getElementById("commit_candidate_status");
     const candidateProgress = document.getElementById("commit_candidate_progress");
     const candidateCharacterCount = document.getElementById("commit_candidate_character_count");
@@ -1640,6 +1676,11 @@ Output requirements:
         return value;
     };
 
+    const setCandidatePanelExpanded = (expanded) => {
+        candidateToggle.setAttribute("aria-expanded", String(expanded));
+        candidateContent.hidden = !expanded;
+    };
+
     const renderCandidates = (result) => {
         generatedCandidates = result.candidates;
         candidateList.replaceChildren();
@@ -1665,6 +1706,7 @@ Output requirements:
         });
         candidateStatus.textContent = "Select a suggestion, then apply it to the commit message.";
         candidatePanel.classList.remove("hidden");
+        setCandidatePanelExpanded(true);
     };
 
     const setCandidateProgress = (content) => {
@@ -1736,6 +1778,7 @@ Output requirements:
         generateCandidatesButton.disabled = true;
         generateCandidatesButton.textContent = "Generating…";
         candidatePanel.classList.remove("hidden");
+        setCandidatePanelExpanded(true);
         candidateStatus.textContent = "Requesting suggestions directly from the configured endpoint…";
         candidateList.replaceChildren();
         setCandidateProgress("");
@@ -1875,6 +1918,11 @@ Output requirements:
     if (generateCandidatesButton) {
         generateCandidatesButton.addEventListener("click", generateCommitCandidates);
     }
+    if (candidateToggle) {
+        candidateToggle.addEventListener("click", () => {
+            setCandidatePanelExpanded(candidateToggle.getAttribute("aria-expanded") !== "true");
+        });
+    }
     if (useCandidateButton) {
         useCandidateButton.addEventListener("click", () => {
             const selected = document.querySelector("input[name='commit_candidate']:checked");
@@ -1882,6 +1930,7 @@ Output requirements:
             if (!candidate) return;
             commitMessageField.value = candidate.commit_message;
             commitMessageField.dispatchEvent(new Event("input", {bubbles: true}));
+            setCandidatePanelExpanded(false);
             commitMessageField.focus();
         });
     }
