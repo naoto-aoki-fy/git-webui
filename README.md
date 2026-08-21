@@ -30,6 +30,7 @@ The UI supports these main workflows:
 Additional behavior:
 
 - GitHub account selection from users authenticated with the GitHub CLI.
+- Repository owner/name completion from `gh repo list` for every authenticated account; the backend switches accounts before listing and restores the previously active account afterward.
 - Git author identity selection from config (`user.name`, `user.email`), with confirmation before submitting when the selected identity differs from the automatic choice.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, previously used repository owners/names, branch history, and backend URL.

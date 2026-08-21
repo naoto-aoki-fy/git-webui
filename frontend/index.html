@@ -691,6 +691,7 @@
     let activeClientId = null;
     let gitUserConfig = [];
     let githubUsers = [];
+    let githubRepositories = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
     let automaticallySelectedGitUser = null;
@@ -1011,12 +1012,26 @@
         }
     };
 
+    const repositoryOwners = () => {
+        const owners = githubRepositories.map((repository) => repository.owner);
+        return [...new Set([...owners, ...readStoredValues(REPOSITORY_OWNER_STORAGE_KEY)])];
+    };
+
+    const repositoryNamesForOwner = (ownerValue) => {
+        const normalizedOwner = ownerValue.trim().toLowerCase();
+        const names = githubRepositories
+            .filter((repository) => !normalizedOwner || repository.owner.toLowerCase() === normalizedOwner)
+            .map((repository) => repository.name);
+        return [...new Set([...names, ...readStoredValues(REPOSITORY_STORAGE_KEY)])];
+    };
+
+    const refreshRepositoryCompletions = (ownerValue = repositoryOwnerField.value) => {
+        renderStoredOptions(repositoryOwners(), repositoryOwnerHistoryList);
+        renderStoredOptions(repositoryNamesForOwner(ownerValue), repositoryHistoryList);
+    };
+
     const refreshStoredSelections = () => {
-        renderStoredOptions(readStoredValues(REPOSITORY_OWNER_STORAGE_KEY), repositoryOwnerHistoryList);
-        renderStoredOptions(
-            readStoredValues(REPOSITORY_STORAGE_KEY),
-            repositoryHistoryList,
-        );
+        refreshRepositoryCompletions();
         renderStoredOptions(
             readStoredValues(BRANCH_STORAGE_KEY),
             branchHistoryList,
@@ -1024,17 +1039,16 @@
     };
 
     const persistStoredSelections = () => {
-        const ownerValues = addStoredValues(REPOSITORY_OWNER_STORAGE_KEY, [
+        addStoredValues(REPOSITORY_OWNER_STORAGE_KEY, [
             repositoryOwnerField.value,
             mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
         ]);
-        const repoValues = addStoredValues(REPOSITORY_STORAGE_KEY, [
+        addStoredValues(REPOSITORY_STORAGE_KEY, [
             repositoryField.value,
             mirrorRepositoryField ? mirrorRepositoryField.value : "",
         ]);
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
-        renderStoredOptions(ownerValues, repositoryOwnerHistoryList);
-        renderStoredOptions(repoValues, repositoryHistoryList);
+        refreshRepositoryCompletions();
         renderStoredOptions(branchValues, branchHistoryList);
     };
 
@@ -1489,6 +1503,11 @@
             return;
         }
         const users = Array.isArray(payload.github_users) ? payload.github_users : [];
+        githubRepositories = Array.isArray(payload.github_repositories)
+            ? payload.github_repositories.filter((repository) =>
+                repository && typeof repository.owner === "string" && typeof repository.name === "string")
+            : [];
+        refreshRepositoryCompletions();
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
         gitUserConfig = gitUsers;
         githubUsers = users;
@@ -2121,6 +2140,14 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
+    repositoryOwnerField.addEventListener("input", () => refreshRepositoryCompletions(repositoryOwnerField.value));
+    repositoryField.addEventListener("focus", () => refreshRepositoryCompletions(repositoryOwnerField.value));
+    if (mirrorRepositoryOwnerField && mirrorRepositoryField) {
+        mirrorRepositoryOwnerField.addEventListener("input", () =>
+            refreshRepositoryCompletions(mirrorRepositoryOwnerField.value));
+        mirrorRepositoryField.addEventListener("focus", () =>
+            refreshRepositoryCompletions(mirrorRepositoryOwnerField.value));
+    }
     if (patchField) {
         patchField.addEventListener("input", clearCopyPatchIndicatorIfPatchChanged);
         patchField.addEventListener("input", updateChatGPTLink);

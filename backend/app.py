@@ -834,6 +834,43 @@ async def _switch_github_user(username: str, logs: Optional[LogSink] = None) -> 
         raise RuntimeError(f"Unable to switch GitHub authentication to {username}")
 
 
+async def _github_repositories(
+    github_users: List[str],
+    active_user: Optional[str],
+    logs: Optional[LogSink] = None,
+) -> List[Dict[str, str]]:
+    """List repositories for each authenticated account without changing the active account."""
+    repositories: List[Dict[str, str]] = []
+    seen: Set[str] = set()
+    try:
+        for username in github_users:
+            await _switch_github_user(username, logs)
+            result = await run_command(
+                "gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner", log=logs
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Unable to list GitHub repositories for {username}")
+            try:
+                entries = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                raise RuntimeError(f"Invalid repository list returned for {username}") from None
+            if not isinstance(entries, list):
+                raise RuntimeError(f"Invalid repository list returned for {username}")
+            for entry in entries:
+                full_name = entry.get("nameWithOwner") if isinstance(entry, dict) else None
+                if not isinstance(full_name, str) or full_name.count("/") != 1:
+                    continue
+                owner, name = full_name.split("/", 1)
+                normalized = full_name.lower()
+                if owner and name and normalized not in seen:
+                    seen.add(normalized)
+                    repositories.append({"owner": owner, "name": name})
+    finally:
+        if active_user:
+            await _switch_github_user(active_user, logs)
+    return repositories
+
+
 def _display_label(entry: Dict[str, str], fallback: str) -> str:
     label = entry.get("label")
     if isinstance(label, str) and label.strip():
@@ -1636,9 +1673,15 @@ async def config_handler(_: web.Request) -> web.Response:
         github_users, active_user = await _github_accounts()
         payload["github_users"] = github_users
         payload["active_github_user"] = active_user
+        try:
+            payload["github_repositories"] = await _github_repositories(github_users, active_user)
+        except RuntimeError as exc:
+            payload["github_repositories"] = []
+            payload["github_repositories_error"] = str(exc)
     except RuntimeError as exc:
         payload["github_users"] = []
         payload["active_github_user"] = None
+        payload["github_repositories"] = []
         payload["github_users_error"] = str(exc)
     return web.json_response({"payload": payload})
 
