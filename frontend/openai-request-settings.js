@@ -31,6 +31,45 @@
         ...baseBody,
     });
 
+    const CANDIDATE_STYLES = new Set(["short", "standard", "detailed", "documentation-oriented", "alternative"]);
+    const CANDIDATE_FIELDS = ["style", "title", "commit_message", "recommended_adoption_level", "reason"];
+
+    const parseFlatCandidateResponse = (value) => {
+        if (!value || Array.isArray(value) || typeof value !== "object" ||
+            !Number.isInteger(value.candidate_count) || value.candidate_count < 2 || value.candidate_count > 5) {
+            throw new Error("The endpoint did not return a flat JSON object with 2–5 candidates.");
+        }
+
+        const expectedKeys = new Set(["candidate_count", "recommended_candidate_id"]);
+        const candidates = [];
+        for (let id = 1; id <= value.candidate_count; id += 1) {
+            const candidate = {id};
+            CANDIDATE_FIELDS.forEach((field) => {
+                const key = `candidate_${id}_${field}`;
+                expectedKeys.add(key);
+                candidate[field] = value[key];
+            });
+            if (!CANDIDATE_STYLES.has(candidate.style) || typeof candidate.title !== "string" ||
+                typeof candidate.commit_message !== "string" ||
+                !Number.isInteger(candidate.recommended_adoption_level) ||
+                candidate.recommended_adoption_level < 1 || candidate.recommended_adoption_level > 5 ||
+                typeof candidate.reason !== "string") {
+                throw new Error("The endpoint returned an invalid candidate at position " + id + ".");
+            }
+            candidates.push(candidate);
+        }
+
+        if (Object.keys(value).some((key) => !expectedKeys.has(key)) ||
+            [...expectedKeys].some((key) => !Object.hasOwn(value, key))) {
+            throw new Error("The endpoint returned unexpected or missing flat JSON properties.");
+        }
+        if (!Number.isInteger(value.recommended_candidate_id) || value.recommended_candidate_id < 1 ||
+            value.recommended_candidate_id > value.candidate_count) {
+            throw new Error("The recommended candidate id is invalid.");
+        }
+        return {candidates, recommended_candidate_id: value.recommended_candidate_id};
+    };
+
     const THINKING_PART_TYPES = new Set(["thinking", "reasoning", "reasoning_content"]);
 
     const partText = (part) => {
@@ -110,6 +149,7 @@
 
     return {
         buildOpenAIRequestBody,
+        parseFlatCandidateResponse,
         parseAdditionalRequestSettings,
         readStreamingMessageContent,
         splitDeltaContent,

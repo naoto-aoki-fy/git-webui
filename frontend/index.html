@@ -1714,7 +1714,9 @@ Requirements:
 Output requirements:
 - Output only valid JSON, with no Markdown, code fences, explanations, or text outside the JSON.
 - Minify the JSON without unnecessary whitespace or line breaks.
-- Use exactly this structure: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.
+- Return one flat JSON object. Every property value must be a primitive; do not use arrays or nested objects.
+- Use exactly these properties: candidate_count, candidate_1_style, candidate_1_title, candidate_1_commit_message, candidate_1_recommended_adoption_level, candidate_1_reason, and recommended_candidate_id. Repeat the five candidate_N_* properties for each additional candidate through candidate_count.
+- Example: {"candidate_count":2,"candidate_1_style":"short","candidate_1_title":"Short","candidate_1_commit_message":"string","candidate_1_recommended_adoption_level":5,"candidate_1_reason":"${languageName}","candidate_2_style":"detailed","candidate_2_title":"Detailed","candidate_2_commit_message":"string","candidate_2_recommended_adoption_level":4,"candidate_2_reason":"${languageName}","recommended_candidate_id":1}.
 - Generate 2–5 candidates with sequential ids starting at 1.
 - style must be one of: short, standard, detailed, documentation-oriented, alternative.
 - recommended_adoption_level must be an integer from 1 to 5.
@@ -1745,25 +1747,6 @@ Output requirements:
     };
 
     const {buildOpenAIRequestBody} = OpenAIRequestSettings;
-
-    const validateCandidateResponse = (value) => {
-        const styles = new Set(["short", "standard", "detailed", "documentation-oriented", "alternative"]);
-        if (!value || !Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
-            throw new Error("The endpoint did not return 2–5 candidates.");
-        }
-        value.candidates.forEach((candidate, index) => {
-            if (candidate.id !== index + 1 || !styles.has(candidate.style) ||
-                typeof candidate.title !== "string" || typeof candidate.commit_message !== "string" ||
-                !Number.isInteger(candidate.recommended_adoption_level) || candidate.recommended_adoption_level < 1 ||
-                candidate.recommended_adoption_level > 5 || typeof candidate.reason !== "string") {
-                throw new Error("The endpoint returned an invalid candidate at position " + (index + 1) + ".");
-            }
-        });
-        if (!value.candidates.some((candidate) => candidate.id === value.recommended_candidate_id)) {
-            throw new Error("The recommended candidate id is invalid.");
-        }
-        return value;
-    };
 
     const setCandidatePanelExpanded = (expanded) => {
         candidateToggle.setAttribute("aria-expanded", String(expanded));
@@ -1864,7 +1847,7 @@ Output requirements:
                 setCandidateThinking,
             );
             if (!content) throw new Error("Endpoint response did not contain message content.");
-            renderCandidates(validateCandidateResponse(JSON.parse(content)));
+            renderCandidates(OpenAIRequestSettings.parseFlatCandidateResponse(JSON.parse(content)));
         } catch (error) {
             console.error("Commit suggestion generation failed", error);
             candidateStatus.textContent = "Generation failed: " + (error.message || "Unknown error");

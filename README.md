@@ -34,7 +34,7 @@ Additional behavior:
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, previously used repository owners/names, branch history, and backend URL.
 - Customizable prompt generation service name and URL template, saved in local storage.
-- Direct commit-message suggestion generation through a browser-accessible OpenAI-compatible chat completions endpoint, with selectable JSON candidates.
+- Direct commit-message suggestion generation through a browser-accessible OpenAI-compatible chat completions endpoint, with selectable candidates received as flat JSON.
 
 ## Repository structure
 
@@ -125,6 +125,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - The OpenAI-compatible endpoint URL, authorization token, and model are configured in the frontend and saved in that browser's `localStorage`. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
 - Additional top-level request parameters are stored as raw text in `git-webui.openAISettings` in that browser's `localStorage`. They must be a JSON object, such as `{"reasoning_effort":"none"}`; arrays and other JSON values are rejected.
 - Additional parameters cannot use the reserved keys `model`, `messages`, `stream`, or `response_format`, which are required by the candidate-generation and response-parsing contract. Available settings vary by OpenAI-compatible endpoint, and the endpoint may reject unsupported parameters.
+- Commit candidate responses use a flat JSON object with primitive `candidate_N_*` properties; arrays and nested objects are not accepted.
 - Streaming generation reasoning is shown in a separate, collapsible thinking display only when the endpoint returns reasoning in `choices[0].delta.reasoning_content` or thinking-type (`thinking`, `reasoning`, or `reasoning_content`) content parts. Both fields may be strings, `{text: ...}` objects, or arrays containing those forms. Some endpoints require additional request parameters to enable thinking; consult the endpoint's documentation and add those parameters in the UI when necessary.
 
 ## Bookmarklet
