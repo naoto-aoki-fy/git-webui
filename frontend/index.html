@@ -1753,6 +1753,14 @@ Output requirements:
         candidateRawJson.textContent = "";
     };
 
+    const quotePatchForPrompt = (patch) => {
+        const backtickRuns = patch.match(/`+/g) || [];
+        const longestRun = backtickRuns.reduce((longest, run) => Math.max(longest, run.length), 0);
+        const fence = "`".repeat(Math.max(3, longestRun + 1));
+        const trailingNewline = patch.endsWith("\n") ? "" : "\n";
+        return fence + "diff\n" + patch + trailingNewline + fence + "\n";
+    };
+
     const generateCommitCandidates = async () => {
         const endpoint = openAIEndpointField.value.trim() || DEFAULT_OPENAI_ENDPOINT;
         const token = openAITokenField.value.trim();
@@ -1778,7 +1786,7 @@ Output requirements:
                     model,
                     messages: [
                         {role: "system", content: commitCandidateSystemPrompt},
-                        {role: "user", content: prMessageField.value + "\n\n" + patchField.value},
+                        {role: "user", content: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value)},
                     ],
                     response_format: {type: "json_object"},
                     stream: true,
@@ -1816,8 +1824,8 @@ Output requirements:
             "\n" +
             prMessageField.value +
             "\n\n" +
-            patchField.value +
-            "\n\n" +
+            quotePatchForPrompt(patchField.value) +
+            "\n" +
             buildGeneratedAtComment()
         );
     };
