@@ -31,6 +31,46 @@
         ...baseBody,
     });
 
+    const CANDIDATE_STYLES = new Set([
+        "short", "standard", "detailed", "documentation-oriented", "alternative",
+    ]);
+
+    const parseAndNormalizeCandidateNDJSON = (content) => {
+        const candidates = [];
+        String(content).split(/\r?\n/).forEach((line, index) => {
+            if (!line.trim()) return;
+            let candidate;
+            try {
+                candidate = JSON.parse(line);
+            } catch (error) {
+                throw new Error("Invalid JSON on NDJSON line " + (index + 1) + ": " + error.message);
+            }
+            candidates.push(candidate);
+        });
+
+        if (candidates.length < 2 || candidates.length > 5) {
+            throw new Error("The endpoint did not return 2–5 candidates.");
+        }
+        candidates.forEach((candidate, index) => {
+            if (!candidate || Array.isArray(candidate) || typeof candidate !== "object" ||
+                candidate.id !== index + 1 || !CANDIDATE_STYLES.has(candidate.style) ||
+                typeof candidate.title !== "string" || typeof candidate.commit_message !== "string" ||
+                !Number.isInteger(candidate.recommended_adoption_level) ||
+                candidate.recommended_adoption_level < 1 || candidate.recommended_adoption_level > 5 ||
+                typeof candidate.reason !== "string" || typeof candidate.recommended !== "boolean") {
+                throw new Error("The endpoint returned an invalid candidate at position " + (index + 1) + ".");
+            }
+        });
+        const recommendedCandidates = candidates.filter((candidate) => candidate.recommended);
+        if (recommendedCandidates.length !== 1) {
+            throw new Error("The endpoint must recommend exactly one candidate.");
+        }
+        return {
+            candidates,
+            recommended_candidate_id: recommendedCandidates[0].id,
+        };
+    };
+
     const THINKING_PART_TYPES = new Set(["thinking", "reasoning", "reasoning_content"]);
 
     const partText = (part) => {
@@ -110,6 +150,7 @@
 
     return {
         buildOpenAIRequestBody,
+        parseAndNormalizeCandidateNDJSON,
         parseAdditionalRequestSettings,
         readStreamingMessageContent,
         splitDeltaContent,

@@ -444,7 +444,7 @@
                     <p id="commit_candidate_status" class="subtle"></p>
                     <div id="commit_candidate_progress" class="candidate-progress hidden">
                         <p class="subtle">Generated characters: <strong id="commit_candidate_character_count">0</strong></p>
-                        <strong>Raw JSON</strong>
+                        <strong>Raw NDJSON</strong>
                         <pre id="commit_candidate_raw_json"></pre>
                     </div>
                     <details id="commit_candidate_thinking" class="candidate-progress candidate-thinking hidden" open>
@@ -1712,14 +1712,15 @@ Requirements:
 - Evaluate each candidate independently.
 
 Output requirements:
-- Output only valid JSON, with no Markdown, code fences, explanations, or text outside the JSON.
-- Minify the JSON without unnecessary whitespace or line breaks.
-- Use exactly this structure: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.
+- Output only JSON Lines (NDJSON), with no Markdown, code fences, explanations, or other text.
+- Output exactly one independent candidate object per line. Do not output blank lines, a JSON array, or a top-level object that wraps all candidates.
+- Every line must use exactly this schema: {"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}","recommended":true}.
 - Generate 2–5 candidates with sequential ids starting at 1.
 - style must be one of: short, standard, detailed, documentation-oriented, alternative.
 - recommended_adoption_level must be an integer from 1 to 5.
 - reason must be a ${languageName} explanation of 1–3 sentences evaluating coverage, clarity, Conventional Commits conformity, and future searchability.
-- Do not add properties not defined above and select one best recommended_candidate_id.`;
+- recommended must be a boolean, and exactly one candidate must have recommended set to true.
+- Do not add properties not defined above.`;
 
     const readOpenAISettings = () => {
         try {
@@ -1853,7 +1854,6 @@ Output requirements:
                         {role: "system", content: commitCandidateSystemPrompt},
                         {role: "user", content: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value)},
                     ],
-                    response_format: {type: "json_object"},
                     stream: true,
                 }, openAIAdditionalRequestParametersField.value)),
             });
@@ -1864,7 +1864,7 @@ Output requirements:
                 setCandidateThinking,
             );
             if (!content) throw new Error("Endpoint response did not contain message content.");
-            renderCandidates(validateCandidateResponse(JSON.parse(content)));
+            renderCandidates(OpenAIRequestSettings.parseAndNormalizeCandidateNDJSON(content));
         } catch (error) {
             console.error("Commit suggestion generation failed", error);
             candidateStatus.textContent = "Generation failed: " + (error.message || "Unknown error");

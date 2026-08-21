@@ -1,6 +1,20 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {readStreamingMessageContent} = require("../frontend/openai-request-settings.js");
+const {
+    parseAndNormalizeCandidateNDJSON,
+    readStreamingMessageContent,
+} = require("../frontend/openai-request-settings.js");
+
+const candidate = (id, recommended = false, overrides = {}) => JSON.stringify({
+    id,
+    style: id === 1 ? "short" : "standard",
+    title: `Candidate ${id}`,
+    commit_message: `feat: candidate ${id}`,
+    recommended_adoption_level: 5,
+    reason: "Clear and searchable.",
+    recommended,
+    ...overrides,
+});
 
 const responseFor = (events) => new Response(events.map((data) => `data: ${data}\n\n`).join(""));
 
@@ -42,4 +56,48 @@ test("does not call the thinking callback for responses without thinking", async
         JSON.stringify({choices: [{delta: {content: [{text: "JSON"}]}}]}),
     ]), undefined, () => { called = true; });
     assert.equal(called, false);
+});
+
+test("parses multiline NDJSON and normalizes the recommended candidate", () => {
+    const result = parseAndNormalizeCandidateNDJSON(candidate(1) + "\n" + candidate(2, true) + "\n");
+    assert.equal(result.candidates.length, 2);
+    assert.equal(result.recommended_candidate_id, 2);
+});
+
+test("parses CRLF, blank lines, and input without a trailing newline", () => {
+    const result = parseAndNormalizeCandidateNDJSON(candidate(1, true) + "\r\n\r\n" + candidate(2));
+    assert.equal(result.recommended_candidate_id, 1);
+});
+
+test("parses NDJSON assembled from a stream chunk split in the middle of a JSON line", async () => {
+    const ndjson = candidate(1, true) + "\n" + candidate(2);
+    const event = `data: ${JSON.stringify({choices: [{delta: {content: ndjson}}]})}\n\n`;
+    const splitAt = event.indexOf("candidate 1");
+    const response = new Response(new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode(event.slice(0, splitAt)));
+            controller.enqueue(new TextEncoder().encode(event.slice(splitAt)));
+            controller.close();
+        },
+    }));
+    const {content} = await readStreamingMessageContent(response);
+    assert.equal(parseAndNormalizeCandidateNDJSON(content).candidates.length, 2);
+});
+
+test("reports the physical line number for invalid JSON", () => {
+    assert.throws(
+        () => parseAndNormalizeCandidateNDJSON(candidate(1, true) + "\n\nnot json\n" + candidate(2)),
+        /NDJSON line 3/,
+    );
+});
+
+test("rejects zero or multiple recommended candidates", () => {
+    assert.throws(
+        () => parseAndNormalizeCandidateNDJSON(candidate(1) + "\n" + candidate(2)),
+        /exactly one candidate/,
+    );
+    assert.throws(
+        () => parseAndNormalizeCandidateNDJSON(candidate(1, true) + "\n" + candidate(2, true)),
+        /exactly one candidate/,
+    );
 });
