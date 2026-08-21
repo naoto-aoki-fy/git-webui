@@ -98,6 +98,37 @@
         return value;
     };
 
+    const FLAT_CANDIDATE_FIELDS = [
+        "id", "style", "title", "commit_message", "recommended_adoption_level", "reason",
+    ];
+
+    const parseAndNormalizeCandidateFlatJSON = (value) => {
+        if (!value || Array.isArray(value) || typeof value !== "object" ||
+            !Number.isInteger(value.candidate_count) || value.candidate_count < 2 || value.candidate_count > 5) {
+            throw new Error("The endpoint did not return a FlatJSON object with a candidate_count from 2 to 5.");
+        }
+
+        const expectedKeys = new Set(["candidate_count", "recommended_candidate_id"]);
+        const candidates = Array.from({length: value.candidate_count}, (_, index) => {
+            const candidateNumber = index + 1;
+            const candidate = {};
+            FLAT_CANDIDATE_FIELDS.forEach((field) => {
+                const key = `candidate_${candidateNumber}_${field}`;
+                expectedKeys.add(key);
+                candidate[field] = value[key];
+            });
+            return candidate;
+        });
+        if (Object.keys(value).some((key) => !expectedKeys.has(key)) ||
+            Array.from(expectedKeys).some((key) => !Object.hasOwn(value, key))) {
+            throw new Error("The endpoint returned invalid FlatJSON candidate fields.");
+        }
+        if (Object.values(value).some((item) => item !== null && typeof item === "object")) {
+            throw new Error("The endpoint returned nested data instead of FlatJSON.");
+        }
+        return validateCandidateResponse({candidates, recommended_candidate_id: value.recommended_candidate_id});
+    };
+
     const parseCandidateResponse = (content, format) => {
         if (!CANDIDATE_OUTPUT_FORMATS.has(format)) throw new Error("Unknown candidate output format.");
         if (format === "ndjson") return parseAndNormalizeCandidateNDJSON(content);
@@ -107,6 +138,7 @@
         } catch (error) {
             throw new Error("The endpoint returned invalid JSON: " + error.message);
         }
+        if (format === "flat_json") return parseAndNormalizeCandidateFlatJSON(value);
         return validateCandidateResponse(value);
     };
 
@@ -227,6 +259,7 @@
         buildOpenAIRequestBody,
         buildCandidateResponseFormat,
         parseCandidateResponse,
+        parseAndNormalizeCandidateFlatJSON,
         parseAndNormalizeCandidateNDJSON,
         parseAdditionalRequestSettings,
         readStreamingMessageContent,

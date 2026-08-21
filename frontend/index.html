@@ -398,7 +398,7 @@
                 <label for="openai_candidate_output_format">Candidate output format</label>
                 <select id="openai_candidate_output_format">
                     <option value="ndjson">NDJSON</option>
-                    <option value="flat_json">FlatJSON (JSON mode)</option>
+                    <option value="flat_json">FlatJSON (flat object)</option>
                     <option value="structured_json">JSON (Structured Outputs)</option>
                 </select>
                 <p class="subtle">JSON modes require an endpoint and model that support the corresponding <code>response_format</code>.</p>
@@ -1725,7 +1725,9 @@ Requirements:
 Output requirements:
 ${format === "ndjson" ? `- Output only JSON Lines (NDJSON), with no Markdown, code fences, explanations, or other text.
 - Output exactly one independent candidate object per line. Do not output blank lines, a JSON array, or a top-level object that wraps all candidates.
-- Every line must use exactly this schema: {"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}","recommended":true}.` : `- Output only one JSON object, with no Markdown, code fences, explanations, or other text.
+- Every line must use exactly this schema: {"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}","recommended":true}.` : format === "flat_json" ? `- Output only one flat JSON object, with no Markdown, code fences, explanations, arrays, or nested objects.
+- Use candidate_count, recommended_candidate_id, and six candidate_N_* properties per candidate. Example for two candidates: {"candidate_count":2,"candidate_1_id":1,"candidate_1_style":"short","candidate_1_title":"Short","candidate_1_commit_message":"string","candidate_1_recommended_adoption_level":5,"candidate_1_reason":"${languageName}","candidate_2_id":2,"candidate_2_style":"standard","candidate_2_title":"Standard","candidate_2_commit_message":"string","candidate_2_recommended_adoption_level":4,"candidate_2_reason":"${languageName}","recommended_candidate_id":1}.
+- Include every candidate_N_* property for N from 1 through candidate_count and no properties for other candidate numbers.` : `- Output only one JSON object, with no Markdown, code fences, explanations, or other text.
 - Use exactly this top-level shape: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.`}
 - Generate 2–5 candidates with sequential ids starting at 1.
 - style must be one of: short, standard, detailed, documentation-oriented, alternative.

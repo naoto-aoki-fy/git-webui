@@ -103,13 +103,46 @@ test("rejects zero or multiple recommended candidates", () => {
     );
 });
 
-test("parses and validates FlatJSON and Structured Outputs content", () => {
+test("parses and normalizes a genuinely flat FlatJSON object", () => {
+    const value = {
+        candidate_count: 2,
+        candidate_1_id: 1,
+        candidate_1_style: "short",
+        candidate_1_title: "Candidate 1",
+        candidate_1_commit_message: "feat: candidate 1",
+        candidate_1_recommended_adoption_level: 5,
+        candidate_1_reason: "Clear and searchable.",
+        candidate_2_id: 2,
+        candidate_2_style: "standard",
+        candidate_2_title: "Candidate 2",
+        candidate_2_commit_message: "feat: candidate 2",
+        candidate_2_recommended_adoption_level: 5,
+        candidate_2_reason: "Clear and searchable.",
+        recommended_candidate_id: 2,
+    };
+    const result = parseCandidateResponse(JSON.stringify(value), "flat_json");
+    assert.equal(result.candidates.length, 2);
+    assert.equal(result.candidates[1].commit_message, "feat: candidate 2");
+    assert.equal(result.recommended_candidate_id, 2);
+});
+
+test("parses and validates Structured Outputs content", () => {
     const value = {
         candidates: [JSON.parse(candidate(1)), JSON.parse(candidate(2))].map(({recommended, ...item}) => item),
         recommended_candidate_id: 2,
     };
-    assert.deepEqual(parseCandidateResponse(JSON.stringify(value), "flat_json"), value);
     assert.deepEqual(parseCandidateResponse(JSON.stringify(value), "structured_json"), value);
+});
+
+test("rejects nested and incomplete FlatJSON objects", () => {
+    assert.throws(
+        () => parseCandidateResponse(JSON.stringify({candidate_count: 2, candidates: []}), "flat_json"),
+        /FlatJSON candidate fields/,
+    );
+    assert.throws(
+        () => parseCandidateResponse(JSON.stringify({candidate_count: 2, recommended_candidate_id: 1}), "flat_json"),
+        /FlatJSON candidate fields/,
+    );
 });
 
 test("rejects invalid JSON and invalid recommended ids in JSON formats", () => {
