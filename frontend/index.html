@@ -1638,7 +1638,7 @@
 
     const commitCandidateSystemPrompt = `You are a professional Git commit message generator.
 
-Based on the changes described after "---- Changes ----", generate 2–5 English Git commit message candidates.
+Based on the changes in the user prompt, generate 2–5 English Git commit message candidates.
 
 Requirements:
 - Prefer the Conventional Commits format.
@@ -1778,7 +1778,7 @@ Output requirements:
                     model,
                     messages: [
                         {role: "system", content: commitCandidateSystemPrompt},
-                        {role: "user", content: "---- Changes ----\n" + prMessageField.value + "\n\n" + patchField.value},
+                        {role: "user", content: prMessageField.value + "\n\n" + patchField.value},
                     ],
                     response_format: {type: "json_object"},
                     stream: true,
