@@ -386,6 +386,11 @@
                 <label for="openai_model">Model</label>
                 <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
             </div>
+            <div>
+                <label for="openai_additional_request_parameters">Additional request parameters</label>
+                <textarea id="openai_additional_request_parameters" placeholder='{"thinking":{"type":"disabled"}}'></textarea>
+                <p class="subtle">Optional. The value must be a JSON object only; for example, <code>{"thinking":{"type":"disabled"}}</code>.</p>
+            </div>
         </div>
         <div id="new_branch_group" class="hidden">
             <label for="new_branch" id="new_branch_label">New Branch Name</label>
@@ -507,6 +512,7 @@
         </div>
     </div>
 </div>
+<script src="openai-request-settings.js"></script>
 <script>
     const form = document.getElementById("apply_form");
     const submitButton = document.getElementById("submit_button");
@@ -561,6 +567,7 @@
     const openAIEndpointField = document.getElementById("openai_endpoint_url");
     const openAITokenField = document.getElementById("openai_authorization_token");
     const openAIModelField = document.getElementById("openai_model");
+    const openAIAdditionalRequestParametersField = document.getElementById("openai_additional_request_parameters");
     const generateCandidatesButton = document.getElementById("generate_commit_candidates");
     const candidatePanel = document.getElementById("commit_candidate_panel");
     const candidateToggle = document.getElementById("commit_candidate_toggle");
@@ -1644,6 +1651,9 @@ Output requirements:
             if (settings && typeof settings.endpoint === "string") openAIEndpointField.value = settings.endpoint;
             if (settings && typeof settings.token === "string") openAITokenField.value = settings.token;
             if (settings && typeof settings.model === "string") openAIModelField.value = settings.model;
+            if (settings && typeof settings.additionalRequestParameters === "string") {
+                openAIAdditionalRequestParametersField.value = settings.additionalRequestParameters;
+            }
         } catch (error) {
             console.warn("Unable to read OpenAI-compatible endpoint settings", error);
         }
@@ -1654,8 +1664,11 @@ Output requirements:
             endpoint: openAIEndpointField.value,
             token: openAITokenField.value,
             model: openAIModelField.value,
+            additionalRequestParameters: openAIAdditionalRequestParametersField.value,
         }));
     };
+
+    const {buildOpenAIRequestBody} = OpenAIRequestSettings;
 
     const validateCandidateResponse = (value) => {
         const styles = new Set(["short", "standard", "detailed", "documentation-oriented", "alternative"]);
@@ -1786,7 +1799,7 @@ Output requirements:
             const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
-                body: JSON.stringify({
+                body: JSON.stringify(buildOpenAIRequestBody({
                     model,
                     messages: [
                         {role: "system", content: commitCandidateSystemPrompt},
@@ -1794,7 +1807,7 @@ Output requirements:
                     ],
                     response_format: {type: "json_object"},
                     stream: true,
-                }),
+                }, openAIAdditionalRequestParametersField.value)),
             });
             if (!response.ok) throw new Error("Endpoint returned HTTP " + response.status + ".");
             const content = await readStreamingMessageContent(response, setCandidateProgress);
@@ -1934,7 +1947,7 @@ Output requirements:
             commitMessageField.focus();
         });
     }
-    [openAIEndpointField, openAITokenField, openAIModelField].forEach((field) => {
+    [openAIEndpointField, openAITokenField, openAIModelField, openAIAdditionalRequestParametersField].forEach((field) => {
         field.addEventListener("change", saveOpenAISettings);
     });
     readOpenAISettings();

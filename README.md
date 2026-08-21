@@ -123,6 +123,8 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - Includes helper actions for clipboard paste and commit-message prompt generation.
 - The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
 - The OpenAI-compatible endpoint URL, authorization token, and model are configured in the frontend and saved in that browser's `localStorage`. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
+- Additional top-level request parameters are stored as raw text in `git-webui.openAISettings` in that browser's `localStorage`. They must be a JSON object, such as `{"thinking":{"type":"disabled"}}`; arrays and other JSON values are rejected.
+- Additional parameters cannot use the reserved keys `model`, `messages`, `stream`, or `response_format`, which are required by the candidate-generation and response-parsing contract. Available settings vary by OpenAI-compatible endpoint, and the endpoint may reject unsupported parameters.
 
 ## Bookmarklet
 
