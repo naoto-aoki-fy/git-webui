@@ -395,6 +395,15 @@
                 <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
             </div>
             <div>
+                <label for="openai_candidate_output_format">Candidate output format</label>
+                <select id="openai_candidate_output_format">
+                    <option value="ndjson">NDJSON</option>
+                    <option value="flat_json">FlatJSON (JSON mode)</option>
+                    <option value="structured_json">JSON (Structured Outputs)</option>
+                </select>
+                <p class="subtle">JSON modes require an endpoint and model that support the corresponding <code>response_format</code>.</p>
+            </div>
+            <div>
                 <label for="openai_additional_request_parameters">Additional request parameters</label>
                 <textarea id="openai_additional_request_parameters" placeholder='{"reasoning_effort":"none"}'></textarea>
                 <p class="subtle">Optional. The value must be a JSON object only; for example, <code>{"reasoning_effort":"none"}</code>.</p>
@@ -444,7 +453,7 @@
                     <p id="commit_candidate_status" class="subtle"></p>
                     <div id="commit_candidate_progress" class="candidate-progress hidden">
                         <p class="subtle">Generated characters: <strong id="commit_candidate_character_count">0</strong></p>
-                        <strong>Raw NDJSON</strong>
+                        <strong id="commit_candidate_raw_label">Raw NDJSON</strong>
                         <pre id="commit_candidate_raw_json"></pre>
                     </div>
                     <details id="commit_candidate_thinking" class="candidate-progress candidate-thinking hidden" open>
@@ -582,6 +591,7 @@
     const openAIEndpointField = document.getElementById("openai_endpoint_url");
     const openAITokenField = document.getElementById("openai_authorization_token");
     const openAIModelField = document.getElementById("openai_model");
+    const openAICandidateOutputFormatField = document.getElementById("openai_candidate_output_format");
     const openAIAdditionalRequestParametersField = document.getElementById("openai_additional_request_parameters");
     const generateCandidatesButton = document.getElementById("generate_commit_candidates");
     const candidatePanel = document.getElementById("commit_candidate_panel");
@@ -591,6 +601,7 @@
     const candidateProgress = document.getElementById("commit_candidate_progress");
     const candidateCharacterCount = document.getElementById("commit_candidate_character_count");
     const candidateRawJson = document.getElementById("commit_candidate_raw_json");
+    const candidateRawLabel = document.getElementById("commit_candidate_raw_label");
     const candidateThinking = document.getElementById("commit_candidate_thinking");
     const candidateThinkingCharacterCount = document.getElementById("commit_candidate_thinking_character_count");
     const candidateThinkingText = document.getElementById("commit_candidate_thinking_text");
@@ -1701,7 +1712,7 @@
     const display = new Intl.DisplayNames(["en"], { type: "language" });
     const languageName = display.of(langCode) || "English";
 
-    const commitCandidateSystemPrompt = `You are a professional Git commit message generator.
+    const buildCommitCandidateSystemPrompt = (format) => `You are a professional Git commit message generator.
 
 Based on the changes in the user prompt, generate 2–5 English Git commit message candidates.
 
@@ -1712,14 +1723,15 @@ Requirements:
 - Evaluate each candidate independently.
 
 Output requirements:
-- Output only JSON Lines (NDJSON), with no Markdown, code fences, explanations, or other text.
+${format === "ndjson" ? `- Output only JSON Lines (NDJSON), with no Markdown, code fences, explanations, or other text.
 - Output exactly one independent candidate object per line. Do not output blank lines, a JSON array, or a top-level object that wraps all candidates.
-- Every line must use exactly this schema: {"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}","recommended":true}.
+- Every line must use exactly this schema: {"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}","recommended":true}.` : `- Output only one JSON object, with no Markdown, code fences, explanations, or other text.
+- Use exactly this top-level shape: {"candidates":[{"id":1,"style":"short","title":"Short","commit_message":"string","recommended_adoption_level":5,"reason":"${languageName}"}],"recommended_candidate_id":1}.`}
 - Generate 2–5 candidates with sequential ids starting at 1.
 - style must be one of: short, standard, detailed, documentation-oriented, alternative.
 - recommended_adoption_level must be an integer from 1 to 5.
 - reason must be a ${languageName} explanation of 1–3 sentences evaluating coverage, clarity, Conventional Commits conformity, and future searchability.
-- recommended must be a boolean, and exactly one candidate must have recommended set to true.
+${format === "ndjson" ? "- recommended must be a boolean, and exactly one candidate must have recommended set to true." : "- recommended_candidate_id must match exactly one generated candidate id."}
 - Do not add properties not defined above.`;
 
     const readOpenAISettings = () => {
@@ -1728,6 +1740,9 @@ Output requirements:
             if (settings && typeof settings.endpoint === "string") openAIEndpointField.value = settings.endpoint;
             if (settings && typeof settings.token === "string") openAITokenField.value = settings.token;
             if (settings && typeof settings.model === "string") openAIModelField.value = settings.model;
+            if (settings && ["ndjson", "flat_json", "structured_json"].includes(settings.candidateOutputFormat)) {
+                openAICandidateOutputFormatField.value = settings.candidateOutputFormat;
+            }
             if (settings && typeof settings.additionalRequestParameters === "string") {
                 openAIAdditionalRequestParametersField.value = settings.additionalRequestParameters;
             }
@@ -1741,30 +1756,12 @@ Output requirements:
             endpoint: openAIEndpointField.value,
             token: openAITokenField.value,
             model: openAIModelField.value,
+            candidateOutputFormat: openAICandidateOutputFormatField.value,
             additionalRequestParameters: openAIAdditionalRequestParametersField.value,
         }));
     };
 
-    const {buildOpenAIRequestBody} = OpenAIRequestSettings;
-
-    const validateCandidateResponse = (value) => {
-        const styles = new Set(["short", "standard", "detailed", "documentation-oriented", "alternative"]);
-        if (!value || !Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
-            throw new Error("The endpoint did not return 2–5 candidates.");
-        }
-        value.candidates.forEach((candidate, index) => {
-            if (candidate.id !== index + 1 || !styles.has(candidate.style) ||
-                typeof candidate.title !== "string" || typeof candidate.commit_message !== "string" ||
-                !Number.isInteger(candidate.recommended_adoption_level) || candidate.recommended_adoption_level < 1 ||
-                candidate.recommended_adoption_level > 5 || typeof candidate.reason !== "string") {
-                throw new Error("The endpoint returned an invalid candidate at position " + (index + 1) + ".");
-            }
-        });
-        if (!value.candidates.some((candidate) => candidate.id === value.recommended_candidate_id)) {
-            throw new Error("The recommended candidate id is invalid.");
-        }
-        return value;
-    };
+    const {buildCandidateResponseFormat, buildOpenAIRequestBody} = OpenAIRequestSettings;
 
     const setCandidatePanelExpanded = (expanded) => {
         candidateToggle.setAttribute("aria-expanded", String(expanded));
@@ -1831,6 +1828,7 @@ Output requirements:
         const endpoint = openAIEndpointField.value.trim() || DEFAULT_OPENAI_ENDPOINT;
         const token = openAITokenField.value.trim();
         const model = openAIModelField.value.trim();
+        const outputFormat = openAICandidateOutputFormatField.value;
         if (!token || !model) {
             alert("Enter an Authorization Token and model before generating suggestions.");
             return;
@@ -1843,15 +1841,17 @@ Output requirements:
         candidateStatus.textContent = "Requesting suggestions directly from the configured endpoint…";
         candidateList.replaceChildren();
         setCandidateProgress("");
+        candidateRawLabel.textContent = outputFormat === "ndjson" ? "Raw NDJSON" : "Raw JSON";
         setCandidateThinking("");
         try {
             const response = await fetch(endpoint, {
                 method: "POST",
                 headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
                 body: JSON.stringify(buildOpenAIRequestBody({
+                    ...buildCandidateResponseFormat(outputFormat),
                     model,
                     messages: [
-                        {role: "system", content: commitCandidateSystemPrompt},
+                        {role: "system", content: buildCommitCandidateSystemPrompt(outputFormat)},
                         {role: "user", content: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value)},
                     ],
                     stream: true,
@@ -1864,7 +1864,7 @@ Output requirements:
                 setCandidateThinking,
             );
             if (!content) throw new Error("Endpoint response did not contain message content.");
-            renderCandidates(OpenAIRequestSettings.parseAndNormalizeCandidateNDJSON(content));
+            renderCandidates(OpenAIRequestSettings.parseCandidateResponse(content, outputFormat));
         } catch (error) {
             console.error("Commit suggestion generation failed", error);
             candidateStatus.textContent = "Generation failed: " + (error.message || "Unknown error");
@@ -1999,7 +1999,8 @@ Output requirements:
             commitMessageField.focus();
         });
     }
-    [openAIEndpointField, openAITokenField, openAIModelField, openAIAdditionalRequestParametersField].forEach((field) => {
+    [openAIEndpointField, openAITokenField, openAIModelField, openAICandidateOutputFormatField,
+        openAIAdditionalRequestParametersField].forEach((field) => {
         field.addEventListener("change", saveOpenAISettings);
     });
     readOpenAISettings();

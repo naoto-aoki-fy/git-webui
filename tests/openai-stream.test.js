@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+    parseCandidateResponse,
     parseAndNormalizeCandidateNDJSON,
     readStreamingMessageContent,
 } = require("../frontend/openai-request-settings.js");
@@ -100,4 +101,22 @@ test("rejects zero or multiple recommended candidates", () => {
         () => parseAndNormalizeCandidateNDJSON(candidate(1, true) + "\n" + candidate(2, true)),
         /exactly one candidate/,
     );
+});
+
+test("parses and validates FlatJSON and Structured Outputs content", () => {
+    const value = {
+        candidates: [JSON.parse(candidate(1)), JSON.parse(candidate(2))].map(({recommended, ...item}) => item),
+        recommended_candidate_id: 2,
+    };
+    assert.deepEqual(parseCandidateResponse(JSON.stringify(value), "flat_json"), value);
+    assert.deepEqual(parseCandidateResponse(JSON.stringify(value), "structured_json"), value);
+});
+
+test("rejects invalid JSON and invalid recommended ids in JSON formats", () => {
+    assert.throws(() => parseCandidateResponse("not json", "flat_json"), /invalid JSON/);
+    const value = {
+        candidates: [JSON.parse(candidate(1)), JSON.parse(candidate(2))].map(({recommended, ...item}) => item),
+        recommended_candidate_id: 99,
+    };
+    assert.throws(() => parseCandidateResponse(JSON.stringify(value), "structured_json"), /recommended candidate id/);
 });

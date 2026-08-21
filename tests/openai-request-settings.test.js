@@ -1,9 +1,29 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+    buildCandidateResponseFormat,
     buildOpenAIRequestBody,
     parseAdditionalRequestSettings,
 } = require("../frontend/openai-request-settings.js");
+
+test("NDJSON does not add a response_format", () => {
+    assert.deepEqual(buildCandidateResponseFormat("ndjson"), {});
+});
+
+test("FlatJSON enables JSON object mode", () => {
+    assert.deepEqual(buildCandidateResponseFormat("flat_json"), {response_format: {type: "json_object"}});
+});
+
+test("Structured Outputs supplies a strict candidate schema", () => {
+    const result = buildCandidateResponseFormat("structured_json");
+    assert.equal(result.response_format.type, "json_schema");
+    assert.equal(result.response_format.json_schema.strict, true);
+    assert.deepEqual(result.response_format.json_schema.schema.required, ["candidates", "recommended_candidate_id"]);
+});
+
+test("unknown output formats are rejected", () => {
+    assert.throws(() => buildCandidateResponseFormat("yaml"), /Unknown candidate output format/);
+});
 
 test("a blank field produces an empty object", () => {
     assert.deepEqual(parseAdditionalRequestSettings("  \n"), {});

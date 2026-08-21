@@ -35,6 +35,81 @@
         "short", "standard", "detailed", "documentation-oriented", "alternative",
     ]);
 
+    const CANDIDATE_OUTPUT_FORMATS = new Set(["ndjson", "flat_json", "structured_json"]);
+
+    const candidateSchema = {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+            candidates: {
+                type: "array",
+                minItems: 2,
+                maxItems: 5,
+                items: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                        id: {type: "integer"},
+                        style: {type: "string", enum: Array.from(CANDIDATE_STYLES)},
+                        title: {type: "string"},
+                        commit_message: {type: "string"},
+                        recommended_adoption_level: {type: "integer", minimum: 1, maximum: 5},
+                        reason: {type: "string"},
+                    },
+                    required: ["id", "style", "title", "commit_message", "recommended_adoption_level", "reason"],
+                },
+            },
+            recommended_candidate_id: {type: "integer"},
+        },
+        required: ["candidates", "recommended_candidate_id"],
+    };
+
+    const buildCandidateResponseFormat = (format) => {
+        if (!CANDIDATE_OUTPUT_FORMATS.has(format)) throw new Error("Unknown candidate output format.");
+        if (format === "ndjson") return {};
+        if (format === "flat_json") return {response_format: {type: "json_object"}};
+        return {
+            response_format: {
+                type: "json_schema",
+                json_schema: {name: "commit_message_candidates", strict: true, schema: candidateSchema},
+            },
+        };
+    };
+
+    const validateCandidateResponse = (value) => {
+        if (!value || Array.isArray(value) || typeof value !== "object" ||
+            !Array.isArray(value.candidates) || value.candidates.length < 2 || value.candidates.length > 5) {
+            throw new Error("The endpoint did not return 2–5 candidates.");
+        }
+        value.candidates.forEach((candidate, index) => {
+            if (!candidate || Array.isArray(candidate) || typeof candidate !== "object" ||
+                candidate.id !== index + 1 || !CANDIDATE_STYLES.has(candidate.style) ||
+                typeof candidate.title !== "string" || typeof candidate.commit_message !== "string" ||
+                !Number.isInteger(candidate.recommended_adoption_level) ||
+                candidate.recommended_adoption_level < 1 || candidate.recommended_adoption_level > 5 ||
+                typeof candidate.reason !== "string") {
+                throw new Error("The endpoint returned an invalid candidate at position " + (index + 1) + ".");
+            }
+        });
+        if (!Number.isInteger(value.recommended_candidate_id) ||
+            !value.candidates.some((candidate) => candidate.id === value.recommended_candidate_id)) {
+            throw new Error("The recommended candidate id is invalid.");
+        }
+        return value;
+    };
+
+    const parseCandidateResponse = (content, format) => {
+        if (!CANDIDATE_OUTPUT_FORMATS.has(format)) throw new Error("Unknown candidate output format.");
+        if (format === "ndjson") return parseAndNormalizeCandidateNDJSON(content);
+        let value;
+        try {
+            value = JSON.parse(content);
+        } catch (error) {
+            throw new Error("The endpoint returned invalid JSON: " + error.message);
+        }
+        return validateCandidateResponse(value);
+    };
+
     const parseAndNormalizeCandidateNDJSON = (content) => {
         const candidates = [];
         String(content).split(/\r?\n/).forEach((line, index) => {
@@ -150,6 +225,8 @@
 
     return {
         buildOpenAIRequestBody,
+        buildCandidateResponseFormat,
+        parseCandidateResponse,
         parseAndNormalizeCandidateNDJSON,
         parseAdditionalRequestSettings,
         readStreamingMessageContent,
