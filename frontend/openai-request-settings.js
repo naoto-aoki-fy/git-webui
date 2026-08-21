@@ -17,7 +17,7 @@
             throw new Error("Additional request parameters contain invalid JSON: " + error.message);
         }
         if (settings === null || Array.isArray(settings) || typeof settings !== "object") {
-            throw new Error("Additional request parameters must be a JSON object (for example, {\"thinking\":{\"type\":\"disabled\"}}). Arrays, strings, numbers, and null are not allowed.");
+            throw new Error("Additional request parameters must be a JSON object (for example, {\"reasoning_effort\":\"none\"}). Arrays, strings, numbers, and null are not allowed.");
         }
         const reservedKey = Object.keys(settings).find((key) => RESERVED_REQUEST_KEYS.has(key));
         if (reservedKey) {

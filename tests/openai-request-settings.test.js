@@ -9,9 +9,9 @@ test("a blank field produces an empty object", () => {
     assert.deepEqual(parseAdditionalRequestSettings("  \n"), {});
 });
 
-test("thinking settings are accepted and merged at the top level", () => {
-    const body = buildOpenAIRequestBody({model: "example"}, '{"thinking":{"type":"disabled"}}');
-    assert.deepEqual(body, {thinking: {type: "disabled"}, model: "example"});
+test("reasoning effort settings are accepted and merged at the top level", () => {
+    const body = buildOpenAIRequestBody({model: "example"}, '{"reasoning_effort":"none"}');
+    assert.deepEqual(body, {reasoning_effort: "none", model: "example"});
 });
 
 test("invalid JSON has an actionable error", () => {
