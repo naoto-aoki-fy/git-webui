@@ -675,8 +675,6 @@
     const resultMessage = document.getElementById("result_message");
     const resultCloseButton = document.getElementById("result_close");
 
-    const REPOSITORY_OWNER_STORAGE_KEY = "git-webui.repositoryOwners";
-    const REPOSITORY_STORAGE_KEY = "git-webui.repositoryNames";
     const BRANCH_STORAGE_KEY = "git-webui.branches";
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
     const DRAFT_STORAGE_KEY = "git-webui.draft";
@@ -1013,8 +1011,7 @@
     };
 
     const repositoryOwners = () => {
-        const owners = githubRepositories.map((repository) => repository.owner);
-        return [...new Set([...owners, ...readStoredValues(REPOSITORY_OWNER_STORAGE_KEY)])];
+        return [...new Set(githubRepositories.map((repository) => repository.owner))];
     };
 
     const repositoryNamesForOwner = (ownerValue) => {
@@ -1022,7 +1019,7 @@
         const names = githubRepositories
             .filter((repository) => !normalizedOwner || repository.owner.toLowerCase() === normalizedOwner)
             .map((repository) => repository.name);
-        return [...new Set([...names, ...readStoredValues(REPOSITORY_STORAGE_KEY)])];
+        return [...new Set(names)];
     };
 
     const refreshRepositoryCompletions = (ownerValue = repositoryOwnerField.value) => {
@@ -1039,16 +1036,7 @@
     };
 
     const persistStoredSelections = () => {
-        addStoredValues(REPOSITORY_OWNER_STORAGE_KEY, [
-            repositoryOwnerField.value,
-            mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
-        ]);
-        addStoredValues(REPOSITORY_STORAGE_KEY, [
-            repositoryField.value,
-            mirrorRepositoryField ? mirrorRepositoryField.value : "",
-        ]);
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
-        refreshRepositoryCompletions();
         renderStoredOptions(branchValues, branchHistoryList);
     };
 
