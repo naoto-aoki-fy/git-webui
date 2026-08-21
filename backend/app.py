@@ -879,10 +879,29 @@ def _normalize_form_payload(form: Dict[str, str]) -> Dict[str, str]:
     return normalized
 
 
+def _github_repository_url(owner: str, name: str) -> str:
+    """Build a GitHub HTTPS clone URL from separately supplied identifiers."""
+    owner = owner.strip()
+    name = name.strip()
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", owner):
+        raise ValueError("Repository owner contains invalid characters.")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        raise ValueError("Repository name contains invalid characters.")
+    return f"https://github.com/{owner}/{name}.git"
+
+
 async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
     _log_debug(logs, "Received submission payload.")
-    repository_url = form.get("repository_url", "").strip()
-    mirror_repository_url = form.get("mirror_repository_url", "").strip()
+    repository_owner = form.get("repository_owner", "").strip()
+    repository_name = form.get("repository_name", "").strip()
+    mirror_repository_owner = form.get("mirror_repository_owner", "").strip()
+    mirror_repository_name = form.get("mirror_repository_name", "").strip()
+    try:
+        repository_url = _github_repository_url(repository_owner, repository_name) if repository_owner or repository_name else form.get("repository_url", "").strip()
+        mirror_repository_url = _github_repository_url(mirror_repository_owner, mirror_repository_name) if mirror_repository_owner or mirror_repository_name else form.get("mirror_repository_url", "").strip()
+    except ValueError as exc:
+        logs.append(_timestamped(str(exc)))
+        return {"form_values": dict(form), "success": False}
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()

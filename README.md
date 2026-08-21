@@ -32,7 +32,7 @@ Additional behavior:
 - GitHub account selection from users authenticated with the GitHub CLI.
 - Git author identity selection from config (`user.name`, `user.email`).
 - Live operation logs streamed over SSE.
-- Frontend-side local storage for draft form values/history and backend URL.
+- Frontend-side local storage for draft form values, previously used repository owners/names, branch history, and backend URL.
 - Customizable prompt generation service name and URL template, saved in local storage.
 - Direct commit-message suggestion generation through a browser-accessible OpenAI-compatible chat completions endpoint, with selectable JSON candidates.
 
@@ -119,7 +119,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 
 - The backend endpoint is configured in the UI as a backend base URL. The frontend calls `${base}/events` for SSE and `${base}/submit`, `${base}/config`, `${base}/health` for HTTP.
 - Query/hash parameters are supported for pre-filling fields.
-- “Open on GitHub” appears for `https://github.com/owner/repo(.git)` repository URLs.
+- Repositories are entered as separate GitHub owner and repository name fields; “Open on GitHub” links to the resulting repository and optional branch.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
 - The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
 - The OpenAI-compatible endpoint URL, authorization token, and model are configured in the frontend and saved in that browser's `localStorage`. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.

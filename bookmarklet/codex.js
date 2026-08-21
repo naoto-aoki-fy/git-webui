@@ -395,6 +395,10 @@
   }
   const repoInfo = repoMapEntries[0][1];
   const repo = repoInfo.repository_full_name;
+  const repoParts = repo.split("/");
+  if (repoParts.length !== 2 || !repoParts[0] || !repoParts[1]) {
+    throw new Error("Invalid repository_full_name: " + JSON.stringify(repo));
+  }
 
   const outputItems = taskInfo.current_assistant_turn.output_items;
   const pr = outputItems.find((value) => value && value.type === "pr");
@@ -408,8 +412,10 @@
   const url =
     baseUrl +
     "#?" +
-    "repository_url=" +
-    encodeURIComponent("https://github.com/" + repo + ".git") +
+    "repository_owner=" +
+    encodeURIComponent(repoParts[0]) +
+    "&repository_name=" +
+    encodeURIComponent(repoParts[1]) +
     "&branch=" +
     encodeURIComponent(branchName) +
     "&branch_mode=default" +

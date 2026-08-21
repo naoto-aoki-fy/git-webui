@@ -3,10 +3,20 @@ import json
 import unittest
 from unittest import mock
 
-from backend.app import CommandResult, _github_accounts, _repository_owner
+from backend.app import CommandResult, _github_accounts, _github_repository_url, _repository_owner
 
 
 class GithubUsersTests(unittest.TestCase):
+    def test_repository_url_is_built_from_owner_and_name(self) -> None:
+        self.assertEqual(
+            _github_repository_url("Example", "project"),
+            "https://github.com/Example/project.git",
+        )
+
+    def test_repository_identifiers_cannot_contain_path_segments(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid characters"):
+            _github_repository_url("Example/other", "project")
+
     def test_https_repository_owner(self) -> None:
         self.assertEqual(_repository_owner("https://github.com/Example/project.git"), "example")
 

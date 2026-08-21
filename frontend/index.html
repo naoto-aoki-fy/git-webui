@@ -307,16 +307,21 @@
     <form method="post" action="/" id="apply_form" novalidate>
         <div id="repository_group">
             <div class="field-header">
-                <label for="repository_url">Repository URL</label>
+                <label>Repository</label>
                 <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>            </div>
             <div class="field-group">
-                <input type="text" id="repository_url" name="repository_url" required list="repository_history">
+                <input type="text" id="repository_owner" name="repository_owner" required list="repository_owner_history" placeholder="Owner" aria-label="Repository owner">
+                <input type="text" id="repository_name" name="repository_name" required list="repository_name_history" placeholder="Repository name" aria-label="Repository name">
             </div>
-            <datalist id="repository_history"></datalist>
+            <datalist id="repository_owner_history"></datalist>
+            <datalist id="repository_name_history"></datalist>
         </div>
         <div id="mirror_repository_group" class="hidden">
-            <label for="mirror_repository_url">Repository B URL (mirror destination)</label>
-            <input type="text" id="mirror_repository_url" name="mirror_repository_url" list="repository_history">
+            <label>Repository B (mirror destination)</label>
+            <div class="field-group">
+                <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
+                <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
+            </div>
             <p class="subtle">Mirror mode runs git clone --mirror on Repository A, then git push --mirror to Repository B. Repository B refs not present in Repository A may be deleted.</p>
         </div>
         <div id="branch_group">
@@ -546,8 +551,10 @@
     const commitIdLabel = document.getElementById("base_commit_label");
     const branchGroup = document.getElementById("branch_group");
     const mirrorRepositoryGroup = document.getElementById("mirror_repository_group");
-    const mirrorRepositoryField = document.getElementById("mirror_repository_url");
-    const repositoryField = document.getElementById("repository_url");
+    const mirrorRepositoryOwnerField = document.getElementById("mirror_repository_owner");
+    const mirrorRepositoryField = document.getElementById("mirror_repository_name");
+    const repositoryOwnerField = document.getElementById("repository_owner");
+    const repositoryField = document.getElementById("repository_name");
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
@@ -644,7 +651,8 @@
     const logOutput = document.getElementById("log_output");
     const logStatus = document.getElementById("log_status");
     const clearLogsButton = document.getElementById("clear_logs");
-    const repositoryHistoryList = document.getElementById("repository_history");
+    const repositoryOwnerHistoryList = document.getElementById("repository_owner_history");
+    const repositoryHistoryList = document.getElementById("repository_name_history");
     const branchHistoryList = document.getElementById("branch_history");
     const backendUrlField = document.getElementById("backend_url");
     const backendApplyButton = document.getElementById("backend_apply");
@@ -656,7 +664,8 @@
     const resultMessage = document.getElementById("result_message");
     const resultCloseButton = document.getElementById("result_close");
 
-    const REPOSITORY_STORAGE_KEY = "git-webui.repositories";
+    const REPOSITORY_OWNER_STORAGE_KEY = "git-webui.repositoryOwners";
+    const REPOSITORY_STORAGE_KEY = "git-webui.repositoryNames";
     const BRANCH_STORAGE_KEY = "git-webui.branches";
     const BACKEND_STORAGE_KEY = "git-webui.backendUrl";
     const DRAFT_STORAGE_KEY = "git-webui.draft";
@@ -704,14 +713,13 @@
     };
     
 
-    const parseGitHubRepository = (value) => {
-        if (!value || typeof value !== "string") {            return null;        }
-        const trimmed = value.trim();
-        const match = trimmed.match(/^https:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?\/?$/i);
-        if (!match) {
+    const getRepositoryUrl = (ownerField, nameField) => {
+        const owner = ownerField ? ownerField.value.trim() : "";
+        const repo = nameField ? nameField.value.trim().replace(/\.git$/i, "") : "";
+        if (!owner || !repo) {
             return null;
         }
-        return { owner: match[1], repo: match[2] };
+        return { owner, repo, url: "https://github.com/" + owner + "/" + repo + ".git" };
     };
 
     const encodeBranchForUrl = (branch) => encodeURIComponent(branch).replace(/%2F/g, "/");
@@ -720,7 +728,7 @@
         if (!openRepositoryButton) {
             return;
         }
-        const repoInfo = parseGitHubRepository(repositoryField.value);
+        const repoInfo = getRepositoryUrl(repositoryOwnerField, repositoryField);
         if (!repoInfo) {
             openRepositoryButton.classList.add("hidden");
             openRepositoryButton.removeAttribute("href");
@@ -992,6 +1000,7 @@
     };
 
     const refreshStoredSelections = () => {
+        renderStoredOptions(readStoredValues(REPOSITORY_OWNER_STORAGE_KEY), repositoryOwnerHistoryList);
         renderStoredOptions(
             readStoredValues(REPOSITORY_STORAGE_KEY),
             repositoryHistoryList,
@@ -1003,11 +1012,16 @@
     };
 
     const persistStoredSelections = () => {
+        const ownerValues = addStoredValues(REPOSITORY_OWNER_STORAGE_KEY, [
+            repositoryOwnerField.value,
+            mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
+        ]);
         const repoValues = addStoredValues(REPOSITORY_STORAGE_KEY, [
             repositoryField.value,
             mirrorRepositoryField ? mirrorRepositoryField.value : "",
         ]);
         const branchValues = addStoredValue(BRANCH_STORAGE_KEY, branchField.value);
+        renderStoredOptions(ownerValues, repositoryOwnerHistoryList);
         renderStoredOptions(repoValues, repositoryHistoryList);
         renderStoredOptions(branchValues, branchHistoryList);
     };
@@ -1037,7 +1051,8 @@
 
     const collectDraft = () => ({
         backend_url: backendUrlField ? backendUrlField.value : "",
-        repository_url: repositoryField.value,
+        repository_owner: repositoryOwnerField.value,
+        repository_name: repositoryField.value,
         branch: branchField.value,
         branch_mode: getSelectedBranchMode(),
         new_branch: newBranchField.value,
@@ -1047,7 +1062,8 @@
         pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
         github_username: githubUserField.value,
-        mirror_repository_url: mirrorRepositoryField ? mirrorRepositoryField.value : "",
+        mirror_repository_owner: mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
+        mirror_repository_name: mirrorRepositoryField ? mirrorRepositoryField.value : "",
         mirror_github_username: mirrorGithubUserField ? mirrorGithubUserField.value : "",
         patch: patchField.value,
     });
@@ -1068,7 +1084,8 @@
         if (backendUrlField && typeof draft.backend_url === "string") {
             backendUrlField.value = draft.backend_url;
         }
-        applyDraftValue(repositoryField, draft.repository_url);
+        applyDraftValue(repositoryOwnerField, draft.repository_owner);
+        applyDraftValue(repositoryField, draft.repository_name);
         applyDraftValue(branchField, draft.branch);
         if (typeof draft.branch_mode === "string") {
             branchModeInputs.forEach((input) => {
@@ -1084,7 +1101,8 @@
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
         applyDraftValue(githubUserField, draft.github_username);
-        applyDraftValue(mirrorRepositoryField, draft.mirror_repository_url);
+        applyDraftValue(mirrorRepositoryOwnerField, draft.mirror_repository_owner);
+        applyDraftValue(mirrorRepositoryField, draft.mirror_repository_name);
         applyDraftValue(mirrorGithubUserField, draft.mirror_github_username);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
@@ -1210,6 +1228,15 @@
             } else {
                 mirrorRepositoryField.setAttribute("disabled", "");
                 mirrorRepositoryField.removeAttribute("required");
+            }
+        }
+        if (mirrorRepositoryOwnerField) {
+            if (isMirrorMode) {
+                mirrorRepositoryOwnerField.removeAttribute("disabled");
+                mirrorRepositoryOwnerField.setAttribute("required", "");
+            } else {
+                mirrorRepositoryOwnerField.setAttribute("disabled", "");
+                mirrorRepositoryOwnerField.removeAttribute("required");
             }
         }
         if (mirrorGithubUserGroup) {
@@ -1371,11 +1398,11 @@
         return parts.length > 0 ? parts[0] : "";
     };
 
-    const applyDefaultGithubUserForRepository = (field, repositoryUrl) => {
+    const applyDefaultGithubUserForRepository = (field, ownerValue) => {
         if (!field || field.hasAttribute("disabled")) {
             return;
         }
-        const owner = getRepositoryOwner(repositoryUrl);
+        const owner = ownerValue.trim().toLowerCase();
         const match = githubUsers.find((username) => username.toLowerCase() === owner);
         if (match) {
             field.value = match;
@@ -1383,9 +1410,9 @@
     };
 
     const applyDefaultGithubUsers = () => {
-        applyDefaultGithubUserForRepository(githubUserField, repositoryField.value);
+        applyDefaultGithubUserForRepository(githubUserField, repositoryOwnerField.value);
         if (mirrorRepositoryField) {
-            applyDefaultGithubUserForRepository(mirrorGithubUserField, mirrorRepositoryField.value);
+            applyDefaultGithubUserForRepository(mirrorGithubUserField, mirrorRepositoryOwnerField.value);
         }
     };
 
@@ -1533,9 +1560,19 @@
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
     }
+    if (repositoryOwnerField) {
+        repositoryOwnerField.addEventListener("input", applyDefaultGithubUsers);
+        repositoryOwnerField.addEventListener("change", applyDefaultGithubUsers);
+        repositoryOwnerField.addEventListener("input", updateRepositoryLinkButton);
+        repositoryOwnerField.addEventListener("change", updateRepositoryLinkButton);
+    }
     if (mirrorRepositoryField) {
         mirrorRepositoryField.addEventListener("input", applyDefaultGithubUsers);
         mirrorRepositoryField.addEventListener("change", applyDefaultGithubUsers);
+    }
+    if (mirrorRepositoryOwnerField) {
+        mirrorRepositoryOwnerField.addEventListener("input", applyDefaultGithubUsers);
+        mirrorRepositoryOwnerField.addEventListener("change", applyDefaultGithubUsers);
     }
     if (branchField) {
         branchField.addEventListener("input", updateRepositoryLinkButton);
@@ -1947,8 +1984,17 @@ Output requirements:
             return;
         }
         applyDraft(defaultFormState);
-        if (queryParams.has("repository_url")) {
-            repositoryField.value = queryParams.get("repository_url") || "";
+        if (queryParams.has("repository_owner")) {
+            repositoryOwnerField.value = queryParams.get("repository_owner") || "";
+        }
+        if (queryParams.has("repository_name")) {
+            repositoryField.value = queryParams.get("repository_name") || "";
+        }
+        if (queryParams.has("mirror_repository_owner")) {
+            mirrorRepositoryOwnerField.value = queryParams.get("mirror_repository_owner") || "";
+        }
+        if (queryParams.has("mirror_repository_name")) {
+            mirrorRepositoryField.value = queryParams.get("mirror_repository_name") || "";
         }
         if (queryParams.has("branch")) {
             branchField.value = queryParams.get("branch") || "";
