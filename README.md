@@ -30,7 +30,7 @@ The UI supports these main workflows:
 Additional behavior:
 
 - GitHub account selection from users authenticated with the GitHub CLI.
-- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. The backend switches accounts before listing and restores the previously active account afterward.
+- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root` for one day. The list is refreshed automatically when stale or on demand with the UI's **Refresh GitHub lists** button. The backend switches accounts before listing and restores the previously active account afterward.
 - Git author identity selection from config (`user.name`, `user.email`), with confirmation before submitting when the selected identity differs from the automatic choice.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.

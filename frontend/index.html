@@ -308,7 +308,11 @@
         <div id="repository_group">
             <div class="field-header">
                 <label>Repository</label>
-                <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>            </div>
+                <div class="field-header-actions">
+                    <button type="button" class="button secondary" id="refresh_github_lists">Refresh GitHub lists</button>
+                    <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
+                </div>
+            </div>
             <div class="field-group">
                 <input type="text" id="repository_owner" name="repository_owner" required list="repository_owner_history" placeholder="Owner" aria-label="Repository owner">
                 <input type="text" id="repository_name" name="repository_name" required list="repository_name_history" placeholder="Repository name" aria-label="Repository name">
@@ -582,6 +586,7 @@
     const mirrorGithubUserGroup = document.getElementById("mirror_github_user_group");
     const mirrorGithubUserField = document.getElementById("mirror_github_username");
     const openRepositoryButton = document.getElementById("open_repository");
+    const refreshGithubListsButton = document.getElementById("refresh_github_lists");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
     const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
@@ -1544,13 +1549,17 @@
         applyDefaultGithubUsers();
     };
 
-    const fetchConfig = async () => {
+    const fetchConfig = async (forceRefresh = false) => {
+        if (forceRefresh && refreshGithubListsButton) {
+            refreshGithubListsButton.disabled = true;
+            refreshGithubListsButton.textContent = "Refreshing...";
+        }
         try {
             const healthPayload = await requestApi("GET", "/health");
             if (!healthPayload || healthPayload.status !== "ok") {
                 throw new Error("Health check failed");
             }
-            const configResponse = await requestApi("GET", "/config");
+            const configResponse = await requestApi("GET", "/config" + (forceRefresh ? "?refresh=1" : ""));
             const payload = configResponse.payload || {};
             populateConfig(payload);
             updateBackendStatus("connected", "connected");
@@ -1559,6 +1568,11 @@
             resetSelect(githubUserField, "(Unable to load GitHub users)");
             resetSelect(gitUserField, "(Unable to load Git users)");
             updateBackendStatus("error", "config error");
+        } finally {
+            if (forceRefresh && refreshGithubListsButton) {
+                refreshGithubListsButton.disabled = false;
+                refreshGithubListsButton.textContent = "Refresh GitHub lists";
+            }
         }
     };
 
@@ -2128,6 +2142,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
+    refreshGithubListsButton.addEventListener("click", () => fetchConfig(true));
     repositoryOwnerField.addEventListener("input", () => refreshRepositoryCompletions(repositoryOwnerField.value));
     repositoryField.addEventListener("focus", () => refreshRepositoryCompletions(repositoryOwnerField.value));
     if (mirrorRepositoryOwnerField && mirrorRepositoryField) {

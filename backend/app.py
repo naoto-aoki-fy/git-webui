@@ -12,7 +12,7 @@ import tomllib
 import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, List, Optional, Set
 import traceback
@@ -25,6 +25,8 @@ DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
+GITHUB_CACHE_FILENAME = ".github-list-cache.json"
+GITHUB_CACHE_MAX_AGE = timedelta(days=1)
 
 
 @dataclass(frozen=True)
@@ -871,6 +873,76 @@ async def _github_repositories(
     return repositories
 
 
+def _github_cache_path() -> Path:
+    return REPO_ROOT / GITHUB_CACHE_FILENAME
+
+
+def _read_github_cache(now: Optional[datetime] = None) -> Optional[Dict[str, object]]:
+    """Return a fresh, valid GitHub listing cache, or None when it must be refreshed."""
+    try:
+        cache = json.loads(_github_cache_path().read_text(encoding="utf-8"))
+        refreshed_at = datetime.fromisoformat(cache["refreshed_at"])
+        if refreshed_at.tzinfo is None:
+            return None
+        users = cache["github_users"]
+        repositories = cache["github_repositories"]
+        active_user = cache.get("active_github_user")
+        if not isinstance(users, list) or not all(isinstance(user, str) for user in users):
+            return None
+        if active_user is not None and not isinstance(active_user, str):
+            return None
+        if not isinstance(repositories, list) or not all(
+            isinstance(repo, dict)
+            and isinstance(repo.get("owner"), str)
+            and isinstance(repo.get("name"), str)
+            for repo in repositories
+        ):
+            return None
+        if (now or datetime.now(UTC)) - refreshed_at.astimezone(UTC) >= GITHUB_CACHE_MAX_AGE:
+            return None
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+    return {
+        "github_users": users,
+        "active_github_user": active_user,
+        "github_repositories": repositories,
+        "github_cache_refreshed_at": refreshed_at.isoformat(),
+    }
+
+
+def _write_github_cache(payload: Dict[str, object], now: Optional[datetime] = None) -> None:
+    cache_path = _github_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache = {
+        "refreshed_at": (now or datetime.now(UTC)).isoformat(),
+        "github_users": payload["github_users"],
+        "active_github_user": payload["active_github_user"],
+        "github_repositories": payload["github_repositories"],
+    }
+    temporary_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+    temporary_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    temporary_path.replace(cache_path)
+
+
+async def _github_listing(force_refresh: bool = False) -> Dict[str, object]:
+    if not force_refresh:
+        cached = _read_github_cache()
+        if cached is not None:
+            return cached
+
+    github_users, active_user = await _github_accounts()
+    repositories = await _github_repositories(github_users, active_user)
+    refreshed_at = datetime.now(UTC)
+    payload: Dict[str, object] = {
+        "github_users": github_users,
+        "active_github_user": active_user,
+        "github_repositories": repositories,
+        "github_cache_refreshed_at": refreshed_at.isoformat(),
+    }
+    _write_github_cache(payload, refreshed_at)
+    return payload
+
+
 def _display_label(entry: Dict[str, str], fallback: str) -> str:
     label = entry.get("label")
     if isinstance(label, str) and label.strip():
@@ -1667,17 +1739,11 @@ async def submit_mirror_repository_handler(request: web.Request) -> web.Response
     return await submit_handler(request)
 
 
-async def config_handler(_: web.Request) -> web.Response:
+async def config_handler(request: web.Request) -> web.Response:
     payload = _serialize_config()
     try:
-        github_users, active_user = await _github_accounts()
-        payload["github_users"] = github_users
-        payload["active_github_user"] = active_user
-        try:
-            payload["github_repositories"] = await _github_repositories(github_users, active_user)
-        except RuntimeError as exc:
-            payload["github_repositories"] = []
-            payload["github_repositories_error"] = str(exc)
+        force_refresh = request.query.get("refresh", "").lower() in {"1", "true", "yes"}
+        payload.update(await _github_listing(force_refresh=force_refresh))
     except RuntimeError as exc:
         payload["github_users"] = []
         payload["active_github_user"] = None
