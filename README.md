@@ -30,7 +30,7 @@ The UI supports these main workflows:
 Additional behavior:
 
 - GitHub account selection from users authenticated with the GitHub CLI.
-- Git author identity selection from config (`user.name`, `user.email`).
+- Git author identity selection from config (`user.name`, `user.email`), with confirmation before submitting when the selected identity differs from the automatic choice.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, previously used repository owners/names, branch history, and backend URL.
 - Customizable prompt generation service name and URL template, saved in local storage.

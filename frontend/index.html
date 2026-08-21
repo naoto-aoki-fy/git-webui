@@ -409,7 +409,7 @@
             <input type="text" id="base_commit" name="base_commit">
         </div>
         <div id="git_user_group">
-            <label for="git_user">Git Author (Commiter)</label>
+            <label for="git_user">Git Author (Committer)</label>
             <select id="git_user" name="git_user">
                 <option value="">Loading git users...</option>
             </select>
@@ -682,6 +682,7 @@
     let githubUsers = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
+    let automaticallySelectedGitUser = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
     let isSubmitting = false;
@@ -1448,6 +1449,28 @@
         } else if (repoValue && typeof defaultGitUserIndex === "number") {
             gitUserField.value = String(defaultGitUserIndex);
         }
+        automaticallySelectedGitUser = gitUserField.value;
+    };
+
+    const gitUserLabel = (value) => {
+        const option = Array.from(gitUserField.options).find((entry) => entry.value === value);
+        return option ? option.textContent : "(none)";
+    };
+
+    const confirmNonDefaultGitUser = () => {
+        if (
+            !gitUserField ||
+            gitUserField.hasAttribute("disabled") ||
+            automaticallySelectedGitUser === null ||
+            gitUserField.value === automaticallySelectedGitUser
+        ) {
+            return true;
+        }
+        return window.confirm(
+            'Use Git Author (Committer) "' + gitUserLabel(gitUserField.value) +
+            '" instead of the automatically selected "' +
+            gitUserLabel(automaticallySelectedGitUser) + '"?'
+        );
     };
 
     const populateConfig = (payload) => {
@@ -1499,6 +1522,7 @@
             defaultGitUserIndex = null;
         }
         applyDefaultGitUserForRepository();
+        automaticallySelectedGitUser = gitUserField.value;
         applyDefaultGithubUsers();
     };
 
@@ -1611,6 +1635,10 @@
         }
         if (commitMessageField) {
             commitMessageField.setCustomValidity("");
+        }
+        if (!confirmNonDefaultGitUser()) {
+            gitUserField.focus();
+            return;
         }
         const payload = Object.fromEntries(new FormData(form).entries());
         const branchMode = payload.branch_mode || "default";
