@@ -26,7 +26,7 @@ DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
 GITHUB_CACHE_FILENAME = ".github-list-cache.json"
-GITHUB_CACHE_MAX_AGE = timedelta(days=1)
+GITHUB_CACHE_MAX_AGE = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -1760,6 +1760,8 @@ async def config_handler(request: web.Request) -> web.Response:
     try:
         force_refresh = request.query.get("refresh", "").lower() in {"1", "true", "yes"}
         payload.update(await _github_listing(force_refresh=force_refresh))
+        if force_refresh:
+            request.app["github_refresh_requested"].set()
     except RuntimeError as exc:
         payload["github_users"] = []
         payload["active_github_user"] = None
@@ -1776,9 +1778,51 @@ async def close_sse_clients(app: web.Application) -> None:
     app["sse_clients"].clear()
 
 
+async def refresh_github_listing_on_startup(app: web.Application) -> None:
+    """Populate GitHub data at startup and start its proactive refresh loop."""
+    try:
+        await _github_listing(force_refresh=True)
+    except RuntimeError:
+        # A missing or unauthenticated GitHub CLI must not prevent the backend
+        # from serving requests; /config will expose the actionable error.
+        pass
+    app["github_refresh_task"] = asyncio.create_task(_github_refresh_loop(app))
+
+
+async def _github_refresh_loop(app: web.Application) -> None:
+    refresh_requested = app["github_refresh_requested"]
+    while True:
+        try:
+            await asyncio.wait_for(
+                refresh_requested.wait(),
+                timeout=GITHUB_CACHE_MAX_AGE.total_seconds(),
+            )
+            refresh_requested.clear()
+        except TimeoutError:
+            try:
+                await _github_listing(force_refresh=True)
+            except RuntimeError:
+                # Keep retrying on the hourly cadence after transient gh errors.
+                pass
+
+
+async def stop_github_refresh(app: web.Application) -> None:
+    task = app.get("github_refresh_task")
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 def create_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app["sse_clients"] = {}
+    app["github_refresh_requested"] = asyncio.Event()
+    app.on_startup.append(refresh_github_listing_on_startup)
+    app.on_cleanup.append(stop_github_refresh)
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
     app.router.add_route("POST", "/submit", submit_default_handler)

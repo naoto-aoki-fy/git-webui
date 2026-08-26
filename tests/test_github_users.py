@@ -15,6 +15,9 @@ from backend.app import (
     _read_github_cache,
     _repository_owner,
     _write_github_cache,
+    create_app,
+    refresh_github_listing_on_startup,
+    stop_github_refresh,
 )
 
 
@@ -88,7 +91,7 @@ class GithubUsersTests(unittest.TestCase):
         self.assertEqual(listing["github_repositories"], payload["github_repositories"])
         command.assert_not_awaited()
 
-    def test_cache_is_stale_after_one_day(self) -> None:
+    def test_cache_is_stale_after_one_hour(self) -> None:
         refreshed_at = datetime(2026, 1, 1, tzinfo=UTC)
         payload = {
             "github_users": ["octocat"],
@@ -99,8 +102,8 @@ class GithubUsersTests(unittest.TestCase):
             "backend.app.REPO_ROOT", Path(tmpdir)
         ):
             _write_github_cache(payload, refreshed_at)
-            self.assertIsNotNone(_read_github_cache(refreshed_at + timedelta(hours=23)))
-            self.assertIsNone(_read_github_cache(refreshed_at + timedelta(days=1)))
+            self.assertIsNotNone(_read_github_cache(refreshed_at + timedelta(minutes=59)))
+            self.assertIsNone(_read_github_cache(refreshed_at + timedelta(hours=1)))
 
     def test_forced_refresh_replaces_existing_cache(self) -> None:
         old_payload = {
@@ -122,6 +125,20 @@ class GithubUsersTests(unittest.TestCase):
 
         accounts.assert_awaited_once()
         self.assertEqual(listing["github_users"], ["new-user"])
+
+    def test_startup_forces_refresh_and_starts_background_task(self) -> None:
+        async def exercise() -> None:
+            app = create_app(serve_frontend=False)
+            with mock.patch(
+                "backend.app._github_listing", mock.AsyncMock(return_value={})
+            ) as listing:
+                await refresh_github_listing_on_startup(app)
+                listing.assert_awaited_once_with(force_refresh=True)
+                self.assertFalse(app["github_refresh_task"].done())
+                await stop_github_refresh(app)
+                self.assertTrue(app["github_refresh_task"].done())
+
+        asyncio.run(exercise())
 
 
 if __name__ == "__main__":
