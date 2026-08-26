@@ -476,18 +476,6 @@
                 Empty Commit
             </label>
         </div>
-        <div id="github_user_group">
-            <label for="github_username" id="github_user_label">GitHub Username</label>
-            <select id="github_username" name="github_username">
-                <option value="">Loading GitHub users...</option>
-            </select>
-        </div>
-        <div id="mirror_github_user_group" class="hidden">
-            <label for="mirror_github_username">Repository B GitHub Username</label>
-            <select id="mirror_github_username" name="mirror_github_username">
-                <option value="">Loading GitHub users...</option>
-            </select>
-        </div>
         <div id="patch_group">
             <div class="field-header">
                 <label for="patch">Patch (applied with git apply --3way -v)</label>
@@ -580,11 +568,6 @@
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
-    const githubUserField = document.getElementById("github_username");
-    const githubUserGroup = document.getElementById("github_user_group");
-    const githubUserLabel = document.getElementById("github_user_label");
-    const mirrorGithubUserGroup = document.getElementById("mirror_github_user_group");
-    const mirrorGithubUserField = document.getElementById("mirror_github_username");
     const openRepositoryButton = document.getElementById("open_repository");
     const refreshGithubListsButton = document.getElementById("refresh_github_lists");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
@@ -693,7 +676,6 @@
     let logStream = null;
     let activeClientId = null;
     let gitUserConfig = [];
-    let githubUsers = [];
     let githubRepositories = [];
     let draftSaveTimeout = null;
     let defaultGitUserIndex = null;
@@ -1080,10 +1062,8 @@
         commit_message: commitMessageField.value,
         pr_message: prMessageField.value,
         allow_empty_commit: allowEmptyCommit.checked,
-        github_username: githubUserField.value,
         mirror_repository_owner: mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
         mirror_repository_name: mirrorRepositoryField ? mirrorRepositoryField.value : "",
-        mirror_github_username: mirrorGithubUserField ? mirrorGithubUserField.value : "",
         patch: patchField.value,
     });
 
@@ -1119,10 +1099,8 @@
         if (typeof draft.allow_empty_commit === "boolean") {
             allowEmptyCommit.checked = draft.allow_empty_commit;
         }
-        applyDraftValue(githubUserField, draft.github_username);
         applyDraftValue(mirrorRepositoryOwnerField, draft.mirror_repository_owner);
         applyDraftValue(mirrorRepositoryField, draft.mirror_repository_name);
-        applyDraftValue(mirrorGithubUserField, draft.mirror_github_username);
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
@@ -1232,7 +1210,6 @@
         configGroup.classList.toggle("hidden", !isConfigMode);
         repositoryGroup.classList.toggle("hidden", isConfigMode);
         backendGroup.classList.toggle("hidden", !isConfigMode);
-        githubUserGroup.classList.toggle("hidden", isConfigMode);
         submitButton.classList.toggle("hidden", isConfigMode);
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
         const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
@@ -1257,19 +1234,6 @@
                 mirrorRepositoryOwnerField.setAttribute("disabled", "");
                 mirrorRepositoryOwnerField.removeAttribute("required");
             }
-        }
-        if (mirrorGithubUserGroup) {
-            mirrorGithubUserGroup.classList.toggle("hidden", !isMirrorMode);
-        }
-        if (mirrorGithubUserField) {
-            if (isMirrorMode) {
-                mirrorGithubUserField.removeAttribute("disabled");
-            } else {
-                mirrorGithubUserField.setAttribute("disabled", "");
-            }
-        }
-        if (githubUserLabel) {
-            githubUserLabel.textContent = isMirrorMode ? "Repository A GitHub Username" : "GitHub Username";
         }
         commitIdGroup.classList.toggle("hidden", isConfigMode || !needsCommit);
         if (needsCommit) {
@@ -1352,7 +1316,6 @@
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
-        applyDefaultGithubUsers();
     };
 
     const resetSelect = (select, message) => {
@@ -1417,24 +1380,6 @@
         return parts.length > 0 ? parts[0] : "";
     };
 
-    const applyDefaultGithubUserForRepository = (field, ownerValue) => {
-        if (!field || field.hasAttribute("disabled")) {
-            return;
-        }
-        const owner = ownerValue.trim().toLowerCase();
-        const match = githubUsers.find((username) => username.toLowerCase() === owner);
-        if (match) {
-            field.value = match;
-        }
-    };
-
-    const applyDefaultGithubUsers = () => {
-        applyDefaultGithubUserForRepository(githubUserField, repositoryOwnerField.value);
-        if (mirrorRepositoryField) {
-            applyDefaultGithubUserForRepository(mirrorGithubUserField, mirrorRepositoryOwnerField.value);
-        }
-    };
-
     const findDefaultGitUserIndexForRepo = (repositoryUrl) => {
         if (!repositoryUrl) {
             return null;
@@ -1495,7 +1440,6 @@
         if (!payload) {
             return;
         }
-        const users = Array.isArray(payload.github_users) ? payload.github_users : [];
         githubRepositories = Array.isArray(payload.github_repositories)
             ? payload.github_repositories.filter((repository) =>
                 repository && typeof repository.owner === "string" && typeof repository.name === "string")
@@ -1503,25 +1447,6 @@
         refreshRepositoryCompletions();
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
         gitUserConfig = gitUsers;
-        githubUsers = users;
-        githubUserField.innerHTML = "";
-        if (mirrorGithubUserField) {
-            mirrorGithubUserField.innerHTML = "";
-        }
-        if (users.length === 0) {
-            resetSelect(githubUserField, "(No authenticated GitHub users)");
-            resetSelect(mirrorGithubUserField, "(No authenticated GitHub users)");
-        } else {
-            users.forEach((username) => {
-                const option = document.createElement("option");
-                option.value = username;
-                option.textContent = username;
-                githubUserField.appendChild(option);
-                if (mirrorGithubUserField) {
-                    mirrorGithubUserField.appendChild(option.cloneNode(true));
-                }
-            });
-        }
         gitUserField.innerHTML = "";
         if (gitUsers.length === 0) {
             resetSelect(gitUserField, "(No Git users configured)");
@@ -1533,11 +1458,6 @@
                 gitUserField.appendChild(option);
             });
         }
-        if (payload.active_github_user && users.includes(payload.active_github_user)) {
-            githubUserField.value = payload.active_github_user;
-            mirrorGithubUserField.value = payload.active_github_user;
-        }
-        applyDefaultGithubUsers();
         defaultGitUserIndex = payload.default_git_user_index;
         if (typeof defaultGitUserIndex === "number" && gitUsers[defaultGitUserIndex]) {
             gitUserField.value = String(defaultGitUserIndex);
@@ -1546,7 +1466,6 @@
         }
         applyDefaultGitUserForRepository();
         automaticallySelectedGitUser = gitUserField.value;
-        applyDefaultGithubUsers();
     };
 
     const fetchConfig = async (forceRefresh = false) => {
@@ -1565,7 +1484,6 @@
             updateBackendStatus("connected", "connected");
         } catch (error) {
             console.error("Failed to load backend config", error);
-            resetSelect(githubUserField, "(Unable to load GitHub users)");
             resetSelect(gitUserField, "(Unable to load Git users)");
             updateBackendStatus("error", "config error");
         } finally {
@@ -1611,24 +1529,12 @@
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
-        repositoryField.addEventListener("input", applyDefaultGithubUsers);
-        repositoryField.addEventListener("change", applyDefaultGithubUsers);
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
     }
     if (repositoryOwnerField) {
-        repositoryOwnerField.addEventListener("input", applyDefaultGithubUsers);
-        repositoryOwnerField.addEventListener("change", applyDefaultGithubUsers);
         repositoryOwnerField.addEventListener("input", updateRepositoryLinkButton);
         repositoryOwnerField.addEventListener("change", updateRepositoryLinkButton);
-    }
-    if (mirrorRepositoryField) {
-        mirrorRepositoryField.addEventListener("input", applyDefaultGithubUsers);
-        mirrorRepositoryField.addEventListener("change", applyDefaultGithubUsers);
-    }
-    if (mirrorRepositoryOwnerField) {
-        mirrorRepositoryOwnerField.addEventListener("input", applyDefaultGithubUsers);
-        mirrorRepositoryOwnerField.addEventListener("change", applyDefaultGithubUsers);
     }
     if (branchField) {
         branchField.addEventListener("input", updateRepositoryLinkButton);
@@ -2076,9 +1982,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             const allowEmptyValue = (queryParams.get("allow_empty_commit") || "").toLowerCase();
             allowEmptyCommit.checked = ["true", "1", "yes", "on"].includes(allowEmptyValue);
         }
-        if (queryParams.has("github_username")) {
-            githubUserField.value = queryParams.get("github_username") || "";
-        }
         if (queryParams.has("patch")) {
             const patchParam = queryParams.get("patch") || "";
             patchField.value = patchParam;
@@ -2086,7 +1989,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         }
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
-        applyDefaultGithubUsers();
         updateRepositoryLinkButton();
         const cleanHash = querySource === "hash" ? "" : window.location.hash;
         const cleanUrl = window.location.pathname + cleanHash;

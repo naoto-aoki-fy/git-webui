@@ -46,45 +46,31 @@ class GithubUsersTests(unittest.TestCase):
         self.assertEqual(users, ["octocat", "work-user"])
         self.assertEqual(active, "work-user")
 
-    def test_repositories_are_listed_after_switching_each_user_and_active_user_is_restored(self) -> None:
-        responses = [
-            CommandResult(0, "", ""),
+    def test_repositories_are_listed_with_per_user_tokens_without_switching(self) -> None:
+        command = mock.AsyncMock(side_effect=[
+            CommandResult(0, "octocat-token\n", ""),
             CommandResult(0, json.dumps([{"nameWithOwner": "octocat/hello"}]), ""),
-            CommandResult(0, "", ""),
+            CommandResult(0, "work-token\n", ""),
             CommandResult(0, json.dumps([{"nameWithOwner": "Work/secret"}]), ""),
-            CommandResult(0, "", ""),
-        ]
-        command = mock.AsyncMock(side_effect=responses)
+        ])
         with mock.patch("backend.app.run_command", command):
-            repositories = asyncio.run(_github_repositories(["octocat", "work-user"], "work-user"))
+            repositories = asyncio.run(_github_repositories(["octocat", "work-user"]))
 
         self.assertEqual(
             repositories,
             [{"owner": "octocat", "name": "hello"}, {"owner": "Work", "name": "secret"}],
         )
-        self.assertEqual(
-            [call.args for call in command.await_args_list],
-            [
-                ("gh", "auth", "switch", "--hostname", "github.com", "--user", "octocat"),
-                ("gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner"),
-                ("gh", "auth", "switch", "--hostname", "github.com", "--user", "work-user"),
-                ("gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner"),
-                ("gh", "auth", "switch", "--hostname", "github.com", "--user", "work-user"),
-            ],
-        )
+        self.assertEqual(command.await_args_list[0].args, ("gh", "auth", "token", "--user", "octocat"))
+        self.assertEqual(command.await_args_list[2].args, ("gh", "auth", "token", "--user", "work-user"))
+        self.assertEqual(command.await_args_list[1].kwargs["env"]["GH_TOKEN"], "octocat-token")
+        self.assertEqual(command.await_args_list[3].kwargs["env"]["GH_TOKEN"], "work-token")
+        self.assertFalse(any(call.args[:3] == ("gh", "auth", "switch") for call in command.await_args_list))
 
-    def test_active_user_is_restored_when_repository_listing_fails(self) -> None:
-        command = mock.AsyncMock(
-            side_effect=[
-                CommandResult(0, "", ""),
-                CommandResult(1, "", "failed"),
-                CommandResult(0, "", ""),
-            ]
-        )
+    def test_repository_listing_fails_when_user_token_is_unavailable(self) -> None:
+        command = mock.AsyncMock(return_value=CommandResult(1, "", "failed"))
         with mock.patch("backend.app.run_command", command):
-            with self.assertRaisesRegex(RuntimeError, "Unable to list"):
-                asyncio.run(_github_repositories(["octocat"], "work-user"))
-        self.assertEqual(command.await_args_list[-1].args[-1], "work-user")
+            with self.assertRaisesRegex(RuntimeError, "Unable to retrieve GitHub token"):
+                asyncio.run(_github_repositories(["octocat"]))
 
     def test_github_listing_uses_fresh_disk_cache_without_running_gh(self) -> None:
         payload = {

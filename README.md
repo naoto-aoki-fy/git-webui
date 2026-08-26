@@ -29,8 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- GitHub account selection from users authenticated with the GitHub CLI.
-- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root` for one day. The list is refreshed automatically when stale or on demand with the UI's **Refresh GitHub lists** button. The backend switches accounts before listing and restores the previously active account afterward.
+- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root` for one day. The list is refreshed automatically when stale or on demand with the UI's **Refresh GitHub lists** button. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
 - Git author identity selection from config (`user.name`, `user.email`), with confirmation before submitting when the selected identity differs from the automatic choice.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.
@@ -53,6 +52,25 @@ requirements.txt            # Python dependency list
 - Python 3.11+ (uses `tomllib` from the standard library).
 - Git installed and available on `PATH`.
 - GitHub CLI (`gh`) authenticated for every GitHub account you want to use.
+- A Git credential helper configured to select credentials from each HTTPS repository owner (example below).
+
+Configure Git to obtain the appropriate GitHub token from `gh` based on the repository owner. The application does not select or switch GitHub users during clone and push operations:
+
+```gitconfig
+[credential "https://github.com/"]
+    useHttpPath = true
+    helper =
+    helper = "!f() { \
+        [ \"$1\" = get ] || exit 0; \
+        owner=''; \
+        while IFS='=' read -r k v; do \
+            [ \"$k\" = path ] && owner=${v%%/*}; \
+        done; \
+        [ -n \"$owner\" ] || exit 0; \
+        token=$(gh auth token --user \"$owner\") || exit 0; \
+        printf 'username=%s\\npassword=%s\\n' \"$owner\" \"$token\"; \
+    }; f"
+```
 
 Install backend dependency:
 
@@ -141,6 +159,6 @@ A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main
 ## Limitations and caveats
 
 - No authentication layer is built into the backend; run only in trusted environments.
-- GitHub operations use HTTPS and the selected account from `gh auth status --json hosts`; SSH remotes are rejected.
+- GitHub operations use HTTPS and rely on the configured Git credential helper to choose credentials by repository owner; SSH remotes are rejected.
 - The backend keeps per-repository cached clones under `--repo-root`.
 - This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.

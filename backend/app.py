@@ -828,48 +828,39 @@ async def _github_accounts(logs: Optional[LogSink] = None) -> tuple[List[str], O
     return users, active
 
 
-async def _switch_github_user(username: str, logs: Optional[LogSink] = None) -> None:
-    result = await run_command(
-        "gh", "auth", "switch", "--hostname", "github.com", "--user", username, log=logs
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Unable to switch GitHub authentication to {username}")
-
-
 async def _github_repositories(
     github_users: List[str],
-    active_user: Optional[str],
     logs: Optional[LogSink] = None,
 ) -> List[Dict[str, str]]:
-    """List repositories for each authenticated account without changing the active account."""
+    """List repositories for each account without changing gh's active account."""
     repositories: List[Dict[str, str]] = []
     seen: Set[str] = set()
-    try:
-        for username in github_users:
-            await _switch_github_user(username, logs)
-            result = await run_command(
-                "gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner", log=logs
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"Unable to list GitHub repositories for {username}")
-            try:
-                entries = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                raise RuntimeError(f"Invalid repository list returned for {username}") from None
-            if not isinstance(entries, list):
-                raise RuntimeError(f"Invalid repository list returned for {username}")
-            for entry in entries:
-                full_name = entry.get("nameWithOwner") if isinstance(entry, dict) else None
-                if not isinstance(full_name, str) or full_name.count("/") != 1:
-                    continue
-                owner, name = full_name.split("/", 1)
-                normalized = full_name.lower()
-                if owner and name and normalized not in seen:
-                    seen.add(normalized)
-                    repositories.append({"owner": owner, "name": name})
-    finally:
-        if active_user:
-            await _switch_github_user(active_user, logs)
+    for username in github_users:
+        token_result = await run_command("gh", "auth", "token", "--user", username)
+        if token_result.returncode != 0 or not token_result.stdout.strip():
+            raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+        env = os.environ.copy()
+        env["GH_TOKEN"] = token_result.stdout.strip()
+        result = await run_command(
+            "gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner", env=env, log=logs
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Unable to list GitHub repositories for {username}")
+        try:
+            entries = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"Invalid repository list returned for {username}") from None
+        if not isinstance(entries, list):
+            raise RuntimeError(f"Invalid repository list returned for {username}")
+        for entry in entries:
+            full_name = entry.get("nameWithOwner") if isinstance(entry, dict) else None
+            if not isinstance(full_name, str) or full_name.count("/") != 1:
+                continue
+            owner, name = full_name.split("/", 1)
+            normalized = full_name.lower()
+            if owner and name and normalized not in seen:
+                seen.add(normalized)
+                repositories.append({"owner": owner, "name": name})
     return repositories
 
 
@@ -931,7 +922,7 @@ async def _github_listing(force_refresh: bool = False) -> Dict[str, object]:
             return cached
 
     github_users, active_user = await _github_accounts()
-    repositories = await _github_repositories(github_users, active_user)
+    repositories = await _github_repositories(github_users)
     refreshed_at = datetime.now(UTC)
     payload: Dict[str, object] = {
         "github_users": github_users,
@@ -1014,8 +1005,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
-    github_username = form.get("github_username", "").strip()
-    mirror_github_username = form.get("mirror_github_username", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
     base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
@@ -1034,8 +1023,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
-    _log_debug(logs, f"Parsed GitHub username='{github_username or '(none)'}'.")
-    _log_debug(logs, f"Parsed mirror GitHub username='{mirror_github_username or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
@@ -1049,8 +1036,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "commit_message": commit_message,
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
-        "github_username": github_username,
-        "mirror_github_username": mirror_github_username,
         "branch_mode": branch_mode,
         "base_commit": base_commit,
     }
@@ -1124,15 +1109,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Branch A and Branch B must be different for merge mode."))
         return {"form_values": form_values, "success": False}
 
-    original_github_user: Optional[str] = None
-    uses_github_https = repository_url.lower().startswith("https://github.com/")
     try:
-        if uses_github_https:
-            github_users, original_github_user = await _github_accounts(logs)
-            if github_username not in github_users:
-                raise RuntimeError("Select an authenticated GitHub username")
-            if github_username != original_github_user:
-                await _switch_github_user(github_username, logs)
         with _temporary_workspace(logs) as workdir:
             repo_dir = _repo_workspace_for_url(repository_url)
             env = os.environ.copy()
@@ -1152,11 +1129,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 )
                 if clone_result.returncode != 0:
                     raise RuntimeError("git clone --mirror failed")
-                if mirror_repository_url.lower().startswith("https://github.com/"):
-                    if mirror_github_username not in github_users:
-                        raise RuntimeError("Select an authenticated GitHub username for Repository B")
-                    if mirror_github_username != github_username:
-                        await _switch_github_user(mirror_github_username, logs)
                 logs.append(_timestamped(f"Pushing mirrored refs to Repository B: {mirror_repository_url}"))
                 push_result = await run_git_command(
                     "push",
@@ -1591,16 +1563,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped(tb_str))
         _log_debug(logs, "Request failed with exception.")
         success = False
-    finally:
-        if uses_github_https and original_github_user:
-            try:
-                _, active_user = await _github_accounts(logs)
-                if active_user != original_github_user:
-                    await _switch_github_user(original_github_user, logs)
-            except Exception as restore_exc:  # noqa: BLE001
-                logs.append(_timestamped(f"ERROR: Failed to restore GitHub user: {restore_exc}"))
-                success = False
-
     return {"form_values": form_values, "success": success}
 
 
