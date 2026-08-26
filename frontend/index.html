@@ -149,6 +149,25 @@
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 1rem;
         }
+        .picker-field {
+            display: flex;
+            min-width: 0;
+        }
+        .picker-field input {
+            min-width: 0;
+        }
+        .picker-button {
+            flex: 0 0 auto;
+            padding: 0 0.35rem;
+            margin-left: 0.25rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-input);
+            color: var(--text-body);
+            cursor: pointer;
+            font-size: 0.7rem;
+            line-height: 1;
+        }
         .toggle-group {
             display: flex;
             flex-wrap: wrap;
@@ -335,8 +354,14 @@
                 </div>
             </div>
             <div class="field-group">
-                <input type="text" id="repository_owner" name="repository_owner" required list="repository_owner_history" placeholder="Owner" aria-label="Repository owner">
-                <input type="text" id="repository_name" name="repository_name" required list="repository_name_history" placeholder="Repository name" aria-label="Repository name">
+                <div class="picker-field">
+                    <input type="text" id="repository_owner" name="repository_owner" required list="repository_owner_history" placeholder="Owner" aria-label="Repository owner">
+                    <button type="button" class="picker-button" data-picker-for="repository_owner" aria-label="Choose repository owner" title="Choose repository owner">▼</button>
+                </div>
+                <div class="picker-field">
+                    <input type="text" id="repository_name" name="repository_name" required list="repository_name_history" placeholder="Repository name" aria-label="Repository name">
+                    <button type="button" class="picker-button" data-picker-for="repository_name" aria-label="Choose repository name" title="Choose repository name">▼</button>
+                </div>
             </div>
             <datalist id="repository_owner_history"></datalist>
             <datalist id="repository_name_history"></datalist>
@@ -350,8 +375,14 @@
                 </div>
             </div>
             <div class="field-group">
-                <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
-                <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
+                <div class="picker-field">
+                    <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
+                    <button type="button" class="picker-button" data-picker-for="mirror_repository_owner" aria-label="Choose repository B owner" title="Choose repository B owner">▼</button>
+                </div>
+                <div class="picker-field">
+                    <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
+                    <button type="button" class="picker-button" data-picker-for="mirror_repository_name" aria-label="Choose repository B name" title="Choose repository B name">▼</button>
+                </div>
             </div>
         </div>
         <div id="branch_group">
@@ -1638,6 +1669,14 @@
         mirrorRepositoryField.addEventListener("input", updateMirrorRepositoryLinkButton);
         mirrorRepositoryField.addEventListener("change", updateMirrorRepositoryLinkButton);
     }
+    document.querySelectorAll("[data-picker-for]").forEach((button) => {
+        button.addEventListener("click", () => {
+            const field = document.getElementById(button.dataset.pickerFor);
+            field.value = "";
+            field.dispatchEvent(new Event("input", {bubbles: true}));
+            field.showPicker();
+        });
+    });
     if (swapMirrorRepositoriesButton) {
         swapMirrorRepositoriesButton.addEventListener("click", () => {
             const ownerA = repositoryOwnerField.value;
