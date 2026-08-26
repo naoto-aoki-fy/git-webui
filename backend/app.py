@@ -46,7 +46,7 @@ CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 def _load_config(config_path: Path) -> Dict[str, object]:
     if not config_path.exists():
-        return {"git_users": []}
+        return {"git_user_defaults": []}
 
     with config_path.open("rb") as config_file:
         try:
@@ -54,14 +54,21 @@ def _load_config(config_path: Path) -> Dict[str, object]:
         except tomllib.TOMLDecodeError as exc:  # noqa: BLE001
             raise RuntimeError(f"Failed to parse configuration file {config_path}: {exc}") from exc
 
-    git_users = data.get("git_users", [])
-    if not isinstance(git_users, list):
-        raise RuntimeError("Configuration file must define 'git_users' as a list")
+    git_user_defaults = data.get("git_user_defaults", [])
+    if not isinstance(git_user_defaults, list):
+        raise RuntimeError("Configuration file must define 'git_user_defaults' as a list")
+    for entry in git_user_defaults:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("repository"), str)
+            or not isinstance(entry.get("github_user"), str)
+        ):
+            raise RuntimeError("Each git_user_defaults entry must define repository and github_user")
 
-    return {"git_users": git_users}
+    return {"git_user_defaults": git_user_defaults}
 
 
-APP_CONFIG = {"git_users": []}
+APP_CONFIG = {"git_user_defaults": []}
 
 
 def _resolve_cors_allow_origin() -> List[str]:
@@ -909,6 +916,43 @@ async def _github_repositories(
     return repositories
 
 
+async def _github_user_profiles(
+    github_users: List[str], logs: Optional[LogSink] = None
+) -> List[Dict[str, object]]:
+    """Retrieve commit identities from GitHub for authenticated CLI accounts."""
+    profiles: List[Dict[str, object]] = []
+    for username in github_users:
+        token_result = await run_command("gh", "auth", "token", "--user", username)
+        if token_result.returncode != 0 or not token_result.stdout.strip():
+            raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+        env = os.environ.copy()
+        env["GH_TOKEN"] = token_result.stdout.strip()
+        result = await run_command(
+            "gh", "api", "user", "--jq", "{id: .id, login: .login, name: .name}",
+            env=env, log=logs,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"Unable to retrieve GitHub profile for {username}")
+        try:
+            profile = json.loads(result.stdout)
+            user_id = profile["id"]
+            login = profile["login"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            raise RuntimeError(f"Invalid GitHub profile returned for {username}") from None
+        if not isinstance(user_id, int) or not isinstance(login, str):
+            raise RuntimeError(f"Invalid GitHub profile returned for {username}")
+        name = profile.get("name")
+        profiles.append(
+            {
+                "id": user_id,
+                "login": login,
+                "name": name.strip() if isinstance(name, str) and name.strip() else login,
+                "email": f"{user_id}+{login}@users.noreply.github.com",
+            }
+        )
+    return profiles
+
+
 def _github_cache_path() -> Path:
     return REPO_ROOT / GITHUB_CACHE_FILENAME
 
@@ -923,7 +967,14 @@ def _read_github_cache(now: Optional[datetime] = None) -> Optional[Dict[str, obj
         users = cache["github_users"]
         repositories = cache["github_repositories"]
         active_user = cache.get("active_github_user")
-        if not isinstance(users, list) or not all(isinstance(user, str) for user in users):
+        if not isinstance(users, list) or not all(
+            isinstance(user, dict)
+            and isinstance(user.get("id"), int)
+            and isinstance(user.get("login"), str)
+            and isinstance(user.get("name"), str)
+            and isinstance(user.get("email"), str)
+            for user in users
+        ):
             return None
         if active_user is not None and not isinstance(active_user, str):
             return None
@@ -966,8 +1017,9 @@ async def _github_listing(force_refresh: bool = False) -> Dict[str, object]:
         if cached is not None:
             return cached
 
-    github_users, active_user = await _github_accounts()
-    repositories = await _github_repositories(github_users)
+    github_accounts, active_user = await _github_accounts()
+    github_users = await _github_user_profiles(github_accounts)
+    repositories = await _github_repositories(github_accounts)
     refreshed_at = datetime.now(UTC)
     payload: Dict[str, object] = {
         "github_users": github_users,
@@ -987,32 +1039,7 @@ def _display_label(entry: Dict[str, str], fallback: str) -> str:
 
 
 def _serialize_config() -> Dict[str, object]:
-    git_users = []
-    for entry in APP_CONFIG["git_users"]:
-        name = entry.get("name", "")
-        email = entry.get("email", "")
-        default_repos = entry.get("default_repositories", [])
-        if not isinstance(default_repos, list):
-            default_repos = []
-        default_repos = [
-            repo.strip()
-            for repo in default_repos
-            if isinstance(repo, str) and repo.strip()
-        ]
-        fallback = " ".join(part for part in [name, f"<{email}>" if email else ""] if part).strip()
-        git_users.append(
-            {
-                "label": _display_label(entry, fallback or "Unknown User"),
-                "name": name,
-                "email": email,
-                "default": entry.get("default") is True,
-                "default_repositories": default_repos,
-            }
-        )
-    return {
-        "git_users": git_users,
-        "default_git_user_index": _find_default_index(APP_CONFIG["git_users"]),
-    }
+    return {"git_user_defaults": APP_CONFIG["git_user_defaults"]}
 
 
 
@@ -1091,15 +1118,20 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     user_name = ""
     user_email = ""
     if git_user_selection:
-        try:
-            user_idx = int(git_user_selection)
-            user_entry = APP_CONFIG["git_users"][user_idx]
-            user_name = user_entry.get("name", "").strip()
-            user_email = user_entry.get("email", "").strip()
-            _log_debug(logs, f"Resolved git user index={user_idx} name='{user_name}'.")
-        except (ValueError, IndexError):
+        listing = await _github_listing()
+        user_entry = next(
+            (
+                entry for entry in listing["github_users"]
+                if entry["login"].lower() == git_user_selection.lower()
+            ),
+            None,
+        )
+        if user_entry is None:
             logs.append(_timestamped("Invalid Git user selection."))
             return {"form_values": form_values, "success": False}
+        user_name = str(user_entry["name"]).strip()
+        user_email = str(user_entry["email"]).strip()
+        _log_debug(logs, f"Resolved GitHub user '{git_user_selection}' as '{user_name}'.")
 
     _log_debug(logs, "Validated git user selection.")
     success = False
@@ -1760,6 +1792,7 @@ async def config_handler(request: web.Request) -> web.Response:
     try:
         force_refresh = request.query.get("refresh", "").lower() in {"1", "true", "yes"}
         payload.update(await _github_listing(force_refresh=force_refresh))
+        payload["git_users"] = payload["github_users"]
         if force_refresh:
             request.app["github_refresh_requested"].set()
     except RuntimeError as exc:

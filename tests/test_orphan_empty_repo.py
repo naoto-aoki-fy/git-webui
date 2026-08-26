@@ -58,12 +58,12 @@ class OrphanEmptyRepoTests(unittest.TestCase):
 
             repository_url = str(remote_dir)
             repo_root.mkdir()
-            app_config = {
-                "git_users": [{"name": "Test User", "email": "test@example.com"}]
-            }
+            app_config = {"git_user_defaults": []}
+            github_listing = mock.AsyncMock(return_value={"github_users": [{"id": 1, "login": "test-user", "name": "Test User", "email": "1+test-user@users.noreply.github.com"}]})
             with (
                 mock.patch.object(app, "REPO_ROOT", repo_root),
                 mock.patch.object(app, "APP_CONFIG", app_config),
+                mock.patch.object(app, "_github_listing", github_listing),
             ):
                 cached_repo = _repo_workspace_for_url(repository_url)
                 subprocess.run(
@@ -83,7 +83,7 @@ class OrphanEmptyRepoTests(unittest.TestCase):
                             "new_branch": "fresh-orphan",
                             "commit_message": "Orphan commit",
                             "allow_empty_commit": "true",
-                            "git_user": "0",
+                            "git_user": "test-user",
                         },
                         logs,
                     )
@@ -117,12 +117,12 @@ class OrphanEmptyRepoTests(unittest.TestCase):
 
             repository_url = str(remote_dir)
             repo_root.mkdir()
-            app_config = {
-                "git_users": [{"name": "Test User", "email": "test@example.com"}],
-            }
+            app_config = {"git_user_defaults": []}
+            github_listing = mock.AsyncMock(return_value={"github_users": [{"id": 1, "login": "test-user", "name": "Test User", "email": "1+test-user@users.noreply.github.com"}]})
             with (
                 mock.patch.object(app, "REPO_ROOT", repo_root),
                 mock.patch.object(app, "APP_CONFIG", app_config),
+                mock.patch.object(app, "_github_listing", github_listing),
             ):
                 cached_repo = _repo_workspace_for_url(repository_url)
                 subprocess.run(
@@ -141,7 +141,7 @@ class OrphanEmptyRepoTests(unittest.TestCase):
                             "new_branch": "first-branch",
                             "commit_message": "Initial orphan commit",
                             "allow_empty_commit": "true",
-                            "git_user": "0",
+                            "git_user": "test-user",
                         },
                         logs,
                     )

@@ -12,6 +12,7 @@ from backend.app import (
     _github_listing,
     _github_repositories,
     _github_repository_url,
+    _github_user_profiles,
     _read_github_cache,
     _repository_owner,
     _write_github_cache,
@@ -69,6 +70,22 @@ class GithubUsersTests(unittest.TestCase):
         self.assertEqual(command.await_args_list[3].kwargs["env"]["GH_TOKEN"], "work-token")
         self.assertFalse(any(call.args[:3] == ("gh", "auth", "switch") for call in command.await_args_list))
 
+    def test_profiles_supply_github_name_and_pseudo_email(self) -> None:
+        command = mock.AsyncMock(side_effect=[
+            CommandResult(0, "token\n", ""),
+            CommandResult(0, json.dumps({"id": 42, "login": "octocat", "name": "The Octocat"}), ""),
+        ])
+        with mock.patch("backend.app.run_command", command):
+            profiles = asyncio.run(_github_user_profiles(["octocat"]))
+
+        self.assertEqual(profiles, [{
+            "id": 42,
+            "login": "octocat",
+            "name": "The Octocat",
+            "email": "42+octocat@users.noreply.github.com",
+        }])
+        self.assertEqual(command.await_args_list[1].kwargs["env"]["GH_TOKEN"], "token")
+
     def test_repository_listing_fails_when_user_token_is_unavailable(self) -> None:
         command = mock.AsyncMock(return_value=CommandResult(1, "", "failed"))
         with mock.patch("backend.app.run_command", command):
@@ -77,7 +94,7 @@ class GithubUsersTests(unittest.TestCase):
 
     def test_github_listing_uses_fresh_disk_cache_without_running_gh(self) -> None:
         payload = {
-            "github_users": ["octocat"],
+            "github_users": [{"id": 1, "login": "octocat", "name": "Octo Cat", "email": "1+octocat@users.noreply.github.com"}],
             "active_github_user": "octocat",
             "github_repositories": [{"owner": "octocat", "name": "hello"}],
         }
@@ -87,14 +104,14 @@ class GithubUsersTests(unittest.TestCase):
             _write_github_cache(payload, datetime.now(UTC))
             listing = asyncio.run(_github_listing())
 
-        self.assertEqual(listing["github_users"], ["octocat"])
+        self.assertEqual(listing["github_users"][0]["login"], "octocat")
         self.assertEqual(listing["github_repositories"], payload["github_repositories"])
         command.assert_not_awaited()
 
     def test_cache_is_stale_after_one_hour(self) -> None:
         refreshed_at = datetime(2026, 1, 1, tzinfo=UTC)
         payload = {
-            "github_users": ["octocat"],
+            "github_users": [{"id": 1, "login": "octocat", "name": "Octo Cat", "email": "1+octocat@users.noreply.github.com"}],
             "active_github_user": "octocat",
             "github_repositories": [],
         }
@@ -107,7 +124,7 @@ class GithubUsersTests(unittest.TestCase):
 
     def test_forced_refresh_replaces_existing_cache(self) -> None:
         old_payload = {
-            "github_users": ["old-user"],
+            "github_users": [{"id": 1, "login": "old-user", "name": "Old", "email": "1+old-user@users.noreply.github.com"}],
             "active_github_user": "old-user",
             "github_repositories": [],
         }
@@ -118,13 +135,16 @@ class GithubUsersTests(unittest.TestCase):
             with mock.patch(
                 "backend.app._github_accounts", mock.AsyncMock(return_value=(["new-user"], "new-user"))
             ) as accounts, mock.patch(
+                "backend.app._github_user_profiles",
+                mock.AsyncMock(return_value=[{"id": 2, "login": "new-user", "name": "New", "email": "2+new-user@users.noreply.github.com"}]),
+            ), mock.patch(
                 "backend.app._github_repositories",
                 mock.AsyncMock(return_value=[{"owner": "new-user", "name": "project"}]),
             ):
                 listing = asyncio.run(_github_listing(force_refresh=True))
 
         accounts.assert_awaited_once()
-        self.assertEqual(listing["github_users"], ["new-user"])
+        self.assertEqual(listing["github_users"][0]["login"], "new-user")
 
     def test_startup_forces_refresh_and_starts_background_task(self) -> None:
         async def exercise() -> None:

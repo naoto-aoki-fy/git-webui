@@ -30,7 +30,7 @@ The UI supports these main workflows:
 Additional behavior:
 
 - Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend refreshes the list when it starts, proactively refreshes it one hour after the last refresh, and refreshes it on demand with the UI's **Refresh GitHub lists** button. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
-- Git author identity selection from config (`user.name`, `user.email`), with confirmation before submitting when the selected identity differs from the automatic choice.
+- Git author identity discovery from authenticated GitHub accounts. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The repository owner is selected by default, with optional repository-name matching overrides.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.
 - Customizable prompt generation service name and URL template, saved in local storage.
@@ -43,7 +43,7 @@ backend/app.py              # aiohttp backend server and git orchestration
 frontend/index.html         # static single-page UI
 bookmarklet/codex.js        # readable source bookmarklet script
 bookmarklet/codex-js-url.txt# URL-encoded bookmarklet payload
-config-sample.toml          # sample git_users config
+config-sample.toml          # sample Git author default rule
 requirements.txt            # Python dependency list
 ```
 
@@ -86,14 +86,9 @@ Copy the sample config and edit values for your machine:
 cp config-sample.toml config.toml
 ```
 
-`config.toml` supports one list:
+Git identities do not need to be stored in `config.toml`: they are fetched from GitHub at startup and by the frontend's **Refresh GitHub lists** button. The backend uses the profile name (or login when no name is set) and the GitHub pseudo-email `<id>+<login>@users.noreply.github.com`.
 
-- `[[git_users]]`: selectable Git commit identities.
-  - `label` (display name)
-  - `name`
-  - `email`
-  - `default` (optional, boolean)
-  - `default_repositories` (optional list used by frontend defaults)
+`config.toml` optionally supports `[[git_user_defaults]]` entries. `repository` is a case-insensitive prefix match against the repository name, and `github_user` is the authenticated GitHub login to select. The first matching rule wins; without a match, the repository owner is selected.
 
 ## Running locally
 

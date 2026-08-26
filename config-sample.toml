@@ -1,11 +1,6 @@
-[[git_users]]
-label = "Work Author"
-name = "Example Developer"
-email = "developer@work.example"
-default = true
-default_repositories = ["https://github.com/work-org/example.git"]
-
-[[git_users]]
-label = "Personal Author"
-name = "Example Developer"
-email = "developer@users.noreply.github.com"
+# Git identities are discovered from accounts authenticated with `gh`. A rule
+# overrides the normal repository-owner default when the repository name
+# starts with this text (case-insensitive).
+[[git_user_defaults]]
+repository = "work-project"
+github_user = "work-user"
