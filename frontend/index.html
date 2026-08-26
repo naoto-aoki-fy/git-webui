@@ -307,7 +307,7 @@
     <form method="post" action="/" id="apply_form" novalidate>
         <div id="repository_group">
             <div class="field-header">
-                <label>Repository</label>
+                <label id="repository_label">Repository</label>
                 <div class="field-header-actions">
                     <button type="button" class="button secondary" id="refresh_github_lists">Refresh GitHub lists</button>
                     <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
@@ -321,7 +321,13 @@
             <datalist id="repository_name_history"></datalist>
         </div>
         <div id="mirror_repository_group" class="hidden">
-            <label>Repository B (mirror destination)</label>
+            <div class="field-header">
+                <label>Repository B (mirror destination)</label>
+                <div class="field-header-actions">
+                    <button type="button" class="button secondary" id="swap_mirror_repositories">Swap A and B</button>
+                    <a class="button secondary hidden" id="open_mirror_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
+                </div>
+            </div>
             <div class="field-group">
                 <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
                 <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
@@ -556,6 +562,7 @@
     const mirrorRepositoryField = document.getElementById("mirror_repository_name");
     const repositoryOwnerField = document.getElementById("repository_owner");
     const repositoryField = document.getElementById("repository_name");
+    const repositoryLabel = document.getElementById("repository_label");
     const branchField = document.getElementById("branch");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
@@ -569,6 +576,8 @@
     const commitMessageField = document.getElementById("commit_message");
     const prMessageField = document.getElementById("pr_message");
     const openRepositoryButton = document.getElementById("open_repository");
+    const openMirrorRepositoryButton = document.getElementById("open_mirror_repository");
+    const swapMirrorRepositoriesButton = document.getElementById("swap_mirror_repositories");
     const refreshGithubListsButton = document.getElementById("refresh_github_lists");
     const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
@@ -737,6 +746,20 @@
         const url = "https://github.com/" + repoInfo.owner + "/" + repoInfo.repo + branchSuffix;
         openRepositoryButton.href = url;
         openRepositoryButton.classList.remove("hidden");
+    };
+
+    const updateMirrorRepositoryLinkButton = () => {
+        if (!openMirrorRepositoryButton) {
+            return;
+        }
+        const repoInfo = getRepositoryUrl(mirrorRepositoryOwnerField, mirrorRepositoryField);
+        if (!repoInfo) {
+            openMirrorRepositoryButton.classList.add("hidden");
+            openMirrorRepositoryButton.removeAttribute("href");
+            return;
+        }
+        openMirrorRepositoryButton.href = "https://github.com/" + repoInfo.owner + "/" + repoInfo.repo;
+        openMirrorRepositoryButton.classList.remove("hidden");
     };
 
     const updateBackendStatus = (state, message) => {
@@ -1104,6 +1127,7 @@
         applyDraftValue(patchField, draft.patch);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
+        updateMirrorRepositoryLinkButton();
         updateChatGPTLink();
     };
 
@@ -1207,6 +1231,9 @@
         }
         const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
+        if (repositoryLabel) {
+            repositoryLabel.textContent = isMirrorMode ? "Repository A (mirror source)" : "Repository";
+        }
         configGroup.classList.toggle("hidden", !isConfigMode);
         repositoryGroup.classList.toggle("hidden", isConfigMode);
         backendGroup.classList.toggle("hidden", !isConfigMode);
@@ -1545,6 +1572,36 @@
             if (!openRepositoryButton.getAttribute("href")) {
                 event.preventDefault();
             }
+        });
+    }
+    if (openMirrorRepositoryButton) {
+        openMirrorRepositoryButton.addEventListener("click", (event) => {
+            if (!openMirrorRepositoryButton.getAttribute("href")) {
+                event.preventDefault();
+            }
+        });
+    }
+    if (mirrorRepositoryOwnerField) {
+        mirrorRepositoryOwnerField.addEventListener("input", updateMirrorRepositoryLinkButton);
+        mirrorRepositoryOwnerField.addEventListener("change", updateMirrorRepositoryLinkButton);
+    }
+    if (mirrorRepositoryField) {
+        mirrorRepositoryField.addEventListener("input", updateMirrorRepositoryLinkButton);
+        mirrorRepositoryField.addEventListener("change", updateMirrorRepositoryLinkButton);
+    }
+    if (swapMirrorRepositoriesButton) {
+        swapMirrorRepositoriesButton.addEventListener("click", () => {
+            const ownerA = repositoryOwnerField.value;
+            const repositoryA = repositoryField.value;
+            repositoryOwnerField.value = mirrorRepositoryOwnerField.value;
+            repositoryField.value = mirrorRepositoryField.value;
+            mirrorRepositoryOwnerField.value = ownerA;
+            mirrorRepositoryField.value = repositoryA;
+            updateRepositoryLinkButton();
+            updateMirrorRepositoryLinkButton();
+            applyDefaultGitUserForRepository();
+            refreshRepositoryCompletions(repositoryOwnerField.value);
+            scheduleDraftSave();
         });
     }
 
@@ -1990,6 +2047,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         clearCopyPatchIndicatorIfPatchChanged();
         applyDefaultGitUserForRepository();
         updateRepositoryLinkButton();
+        updateMirrorRepositoryLinkButton();
         const cleanHash = querySource === "hash" ? "" : window.location.hash;
         const cleanUrl = window.location.pathname + cleanHash;
         window.history.pushState({}, "", cleanUrl);
