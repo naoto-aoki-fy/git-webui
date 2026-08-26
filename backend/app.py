@@ -45,7 +45,7 @@ CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 def _load_config(config_path: Path) -> Dict[str, object]:
     if not config_path.exists():
-        return {"git_user_defaults": []}
+        return {"repository_prefix_destinations": [], "git_user_defaults": []}
 
     with config_path.open("rb") as config_file:
         try:
@@ -64,10 +64,25 @@ def _load_config(config_path: Path) -> Dict[str, object]:
         ):
             raise RuntimeError("Each git_user_defaults entry must define repository and github_user")
 
-    return {"git_user_defaults": git_user_defaults}
+    destinations = data.get("repository_prefix_destinations", [])
+    if not isinstance(destinations, list):
+        raise RuntimeError("Configuration file must define 'repository_prefix_destinations' as an array of pairs")
+    for entry in destinations:
+        if (
+            not isinstance(entry, list)
+            or len(entry) != 2
+            or not all(isinstance(value, str) and value.strip() for value in entry)
+        ):
+            raise RuntimeError("Each repository_prefix_destinations entry must be a [prefix, destination_owner] pair")
+
+    return {
+        "repository_prefix_destinations": destinations,
+        # Kept in the response during the deprecation period for old clients.
+        "git_user_defaults": git_user_defaults,
+    }
 
 
-APP_CONFIG = {"git_user_defaults": []}
+APP_CONFIG = {"repository_prefix_destinations": [], "git_user_defaults": []}
 
 
 def _resolve_cors_allow_origin() -> List[str]:
@@ -1036,7 +1051,10 @@ def _display_label(entry: Dict[str, str], fallback: str) -> str:
 
 
 def _serialize_config() -> Dict[str, object]:
-    return {"git_user_defaults": APP_CONFIG["git_user_defaults"]}
+    return {
+        "repository_prefix_destinations": APP_CONFIG.get("repository_prefix_destinations", []),
+        "git_user_defaults": APP_CONFIG.get("git_user_defaults", []),
+    }
 
 
 
@@ -1059,6 +1077,37 @@ def _github_repository_url(owner: str, name: str) -> str:
     return f"https://github.com/{owner}/{name}.git"
 
 
+def _additional_repository(repository_name: str) -> Optional[tuple[str, str]]:
+    """Return the first configured destination owner/name for a repository."""
+    normalized_name = repository_name.lower()
+    for prefix, owner in APP_CONFIG.get("repository_prefix_destinations", []):
+        if normalized_name.startswith(prefix.strip().lower()):
+            destination_name = repository_name[len(prefix.strip()):]
+            if not destination_name:
+                raise ValueError("A repository prefix mapping cannot produce an empty destination repository name.")
+            return owner.strip(), destination_name
+    return None
+
+
+async def _push_to_remotes(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: LogSink,
+    repository_name: str,
+    *arguments: str,
+) -> None:
+    destinations = [("origin", "origin")]
+    additional = _additional_repository(repository_name)
+    if additional:
+        owner, name = additional
+        destinations.append((f"{owner}/{name}", _github_repository_url(owner, name)))
+    for label, remote in destinations:
+        _log_debug(logs, f"Pushing to {label}.")
+        result = await run_git_command("push", remote, *arguments, cwd=repo_dir, env=env, log=logs)
+        if result.returncode != 0:
+            raise RuntimeError(f"git push to {label} failed")
+
+
 async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
     _log_debug(logs, "Received submission payload.")
     repository_owner = form.get("repository_owner", "").strip()
@@ -1071,6 +1120,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     except ValueError as exc:
         logs.append(_timestamped(str(exc)))
         return {"form_values": dict(form), "success": False}
+    if not repository_name and repository_url:
+        repository_name = Path(repository_url.removesuffix(".git").rstrip("/")).name
     branch = form.get("branch", "").strip()
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
@@ -1358,16 +1409,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError("Failed to create branch from commit")
                 _log_debug(logs, f"Branch '{new_branch}' created from commit.")
                 _log_debug(logs, "Pushing branch created from commit to origin.")
-                push_result = await run_git_command(
-                    "push",
-                    "origin",
-                    new_branch,
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if push_result.returncode != 0:
-                    raise RuntimeError("git push failed")
+                await _push_to_remotes(repo_dir, env, logs, repository_name, new_branch)
                 logs.append(_timestamped("Branch created from commit and pushed successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}
@@ -1399,17 +1441,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if reset_result.returncode != 0:
                     raise RuntimeError("git reset --hard failed")
                 _log_debug(logs, f"Force-pushing branch '{branch}' to origin.")
-                push_result = await run_git_command(
-                    "push",
-                    "-f",
-                    "origin",
-                    branch,
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if push_result.returncode != 0:
-                    raise RuntimeError("git push failed")
+                await _push_to_remotes(repo_dir, env, logs, repository_name, "--force", branch)
                 logs.append(_timestamped("Branch reset and force-pushed successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}
@@ -1455,28 +1487,12 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if ff_check_result.returncode != 0:
                     raise RuntimeError("Fast-forward merge is not possible (branch A is not an ancestor of branch B)")
                 _log_debug(logs, f"Fast-forward updating '{branch}' to '{new_branch}' on origin.")
-                push_result = await run_git_command(
-                    "push",
-                    "origin",
+                await _push_to_remotes(
+                    repo_dir, env, logs, repository_name,
                     f"refs/remotes/origin/{new_branch}:refs/heads/{branch}",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
                 )
-                if push_result.returncode != 0:
-                    raise RuntimeError("git push failed")
                 _log_debug(logs, f"Deleting merged source branch '{new_branch}' on origin.")
-                delete_remote_result = await run_git_command(
-                    "push",
-                    "origin",
-                    "--delete",
-                    new_branch,
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if delete_remote_result.returncode != 0:
-                    raise RuntimeError("Failed to delete source branch on origin")
+                await _push_to_remotes(repo_dir, env, logs, repository_name, "--delete", new_branch)
                 _log_debug(logs, f"Verifying source branch '{new_branch}' was deleted from origin.")
                 verify_delete_remote_result = await run_git_command(
                     "ls-remote",
@@ -1624,16 +1640,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
 
             if commit_message:
                 _log_debug(logs, "Pushing commit to origin.")
-                push_result = await run_git_command(
-                    "push",
-                    "origin",
+                await _push_to_remotes(
+                    repo_dir, env, logs, repository_name,
                     f"HEAD:{target_branch}" if target_branch else "HEAD",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
                 )
-                if push_result.returncode != 0:
-                    raise RuntimeError("git push failed")
                 logs.append(_timestamped("Patch applied, committed, and pushed successfully."))
                 _log_debug(logs, "git push completed.")
             else:

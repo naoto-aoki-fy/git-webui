@@ -1,6 +1,12 @@
-# Git identities are discovered from accounts authenticated with `gh`. A rule
-# overrides the normal repository-owner default when the repository name
-# starts with this text (case-insensitive).
-[[git_user_defaults]]
-repository = "work-project"
-github_user = "work-user"
+# When a repository name starts with a prefix (case-insensitive), pushes are
+# repeated to destination_owner/<name-with-prefix-removed>. The destination
+# owner is also the default Git author, and Repository B is prefilled in sync
+# mode. The first matching pair wins.
+repository_prefix_destinations = [
+  ["upstream-", "destination-owner"],
+]
+
+# Deprecated: retained temporarily for compatibility with existing configs.
+# [[git_user_defaults]]
+# repository = "work-project"
+# github_user = "work-user"

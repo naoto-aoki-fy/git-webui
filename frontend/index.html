@@ -723,6 +723,7 @@
     let githubRepositories = [];
     let draftSaveTimeout = null;
     let gitUserDefaults = [];
+    let repositoryPrefixDestinations = [];
     let automaticallySelectedGitUser = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
@@ -1437,6 +1438,10 @@
     const findDefaultGitUserForRepo = () => {
         const repositoryName = repositoryField.value.trim().toLowerCase();
         const repositoryOwner = repositoryOwnerField.value.trim().toLowerCase();
+        const destination = findAdditionalRepository();
+        if (destination) {
+            return destination.owner;
+        }
         for (const rule of gitUserDefaults) {
             const prefix = typeof rule.repository === "string" ? rule.repository.trim().toLowerCase() : "";
             if (prefix && repositoryName.startsWith(prefix)) {
@@ -1446,6 +1451,30 @@
         const owner = gitUserConfig.find((entry) =>
             typeof entry.login === "string" && entry.login.toLowerCase() === repositoryOwner);
         return owner ? owner.login : null;
+    };
+
+    const findAdditionalRepository = () => {
+        const repositoryName = repositoryField.value.trim();
+        const normalizedName = repositoryName.toLowerCase();
+        for (const rule of repositoryPrefixDestinations) {
+            if (!Array.isArray(rule) || rule.length !== 2) continue;
+            const prefix = typeof rule[0] === "string" ? rule[0].trim() : "";
+            const owner = typeof rule[1] === "string" ? rule[1].trim() : "";
+            if (prefix && owner && normalizedName.startsWith(prefix.toLowerCase())) {
+                return {owner, name: repositoryName.slice(prefix.length)};
+            }
+        }
+        return null;
+    };
+
+    const autofillSyncDestination = () => {
+        const mode = document.querySelector("input[name='branch_mode']:checked");
+        const destination = findAdditionalRepository();
+        if (mode && mode.value === "mirror_repository" && destination && destination.name) {
+            mirrorRepositoryOwnerField.value = destination.owner;
+            mirrorRepositoryField.value = destination.name;
+            updateMirrorRepositoryLinkButton();
+        }
     };
 
     const applyDefaultGitUserForRepository = () => {
@@ -1492,6 +1521,8 @@
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
         gitUserConfig = gitUsers;
         gitUserDefaults = Array.isArray(payload.git_user_defaults) ? payload.git_user_defaults : [];
+        repositoryPrefixDestinations = Array.isArray(payload.repository_prefix_destinations)
+            ? payload.repository_prefix_destinations : [];
         gitUserField.innerHTML = "";
         if (gitUsers.length === 0) {
             resetSelect(gitUserField, "(No Git users configured)");
@@ -1504,6 +1535,7 @@
             });
         }
         applyDefaultGitUserForRepository();
+        autofillSyncDestination();
         automaticallySelectedGitUser = gitUserField.value;
     };
 
@@ -1564,10 +1596,13 @@
     allowEmptyCommit.addEventListener("change", togglePatchRequired);
     branchModeInputs.forEach((input) => {
         input.addEventListener("change", toggleCommitField);
+        input.addEventListener("change", autofillSyncDestination);
     });
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
+        repositoryField.addEventListener("input", autofillSyncDestination);
+        repositoryField.addEventListener("change", autofillSyncDestination);
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
     }
