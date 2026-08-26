@@ -491,6 +491,51 @@ async def _generate_unique_temp_branch(repo_dir: Path, env: Dict[str, str], logs
         _log_debug(logs, f"Temporary branch '{candidate}' already exists; regenerating.")
 
 
+async def _delete_all_local_branches(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> None:
+    _log_debug(logs, "Deleting all local branches before orphan branch creation.")
+    branches_result = await run_git_command(
+        "for-each-ref",
+        "--format=%(refname:short)",
+        "refs/heads/",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if branches_result.returncode != 0:
+        raise RuntimeError("Failed to list local branches")
+
+    branches = [line.strip() for line in branches_result.stdout.splitlines() if line.strip()]
+    if not branches:
+        return
+
+    detach_result = await run_git_command(
+        "checkout",
+        "--detach",
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if detach_result.returncode != 0:
+        raise RuntimeError("Failed to detach HEAD before deleting local branches")
+
+    for branch in branches:
+        _log_debug(logs, f"Deleting local branch '{branch}' before orphan creation.")
+        delete_result = await run_git_command(
+            "branch",
+            "-D",
+            branch,
+            cwd=repo_dir,
+            env=env,
+            log=logs,
+        )
+        if delete_result.returncode != 0:
+            raise RuntimeError(f"Failed to delete branch {branch}")
+
+
 async def _reset_cached_repo_state(
     repo_dir: Path,
     env: Dict[str, str],
@@ -1340,6 +1385,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 success = True
                 return {"form_values": form_values, "success": success}
             elif branch_mode == "orphan":
+                await _delete_all_local_branches(repo_dir, env, logs)
                 logs.append(_timestamped(f"Creating orphan branch {new_branch}."))
                 _log_debug(logs, f"Creating orphan branch '{new_branch}'.")
                 create_branch_result = await run_git_command(
