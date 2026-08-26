@@ -322,7 +322,7 @@
         </div>
         <div id="mirror_repository_group" class="hidden">
             <div class="field-header">
-                <label>Repository B (mirror destination)</label>
+                <label>Repository B (sync destination)</label>
                 <div class="field-header-actions">
                     <button type="button" class="button secondary" id="swap_mirror_repositories">Swap A and B</button>
                     <a class="button secondary hidden" id="open_mirror_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
@@ -332,7 +332,14 @@
                 <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
                 <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
             </div>
-            <p class="subtle">Mirror mode runs git clone --mirror on Repository A, then git push --mirror to Repository B. Repository B refs not present in Repository A may be deleted.</p>
+            <div>
+                <label for="sync_push_option">Sync method</label>
+                <select id="sync_push_option" name="sync_push_option">
+                    <option value="all" selected>All branches (git push --all)</option>
+                    <option value="mirror">Mirror all refs (git push --mirror)</option>
+                </select>
+            </div>
+            <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Select “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
         </div>
         <div id="branch_group">
             <label for="branch">Branch (optional: use the current branch)</label>
@@ -364,7 +371,7 @@
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="mirror_repository">
-                    Mirror
+                    Sync
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="config">
@@ -547,7 +554,7 @@
         orphan: "Create a new orphan branch with no parent history.",
         revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
         merge_branches: "Fast-forward Branch A to Branch B, then delete Branch B after success.",
-        mirror_repository: "Mirror Repository A to Repository B with git push --mirror; Repository B refs missing from Repository A may be deleted.",
+        mirror_repository: "Sync Repository A to Repository B. Push all branches by default, or select the previous mirror behavior.",
         config: "Configure backend and OpenAI settings without applying repository changes.",
     };
     const configGroup = document.getElementById("config_group");
@@ -1232,7 +1239,7 @@
         const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
         if (repositoryLabel) {
-            repositoryLabel.textContent = isMirrorMode ? "Repository A (mirror source)" : "Repository";
+            repositoryLabel.textContent = isMirrorMode ? "Repository A (sync source)" : "Repository";
         }
         configGroup.classList.toggle("hidden", !isConfigMode);
         repositoryGroup.classList.toggle("hidden", isConfigMode);

@@ -1006,6 +1006,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     new_branch = form.get("new_branch", "").strip()
     git_user_selection = form.get("git_user", "").strip()
     branch_mode = form.get("branch_mode", "default").strip()
+    sync_push_option = form.get("sync_push_option", "all").strip()
     base_commit = form.get("base_commit", "").strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
@@ -1021,6 +1022,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Parsed branch='{branch or '(default)'}'.")
     _log_debug(logs, f"Parsed new_branch='{new_branch or '(none)'}'.")
     _log_debug(logs, f"Parsed branch_mode='{branch_mode}'.")
+    _log_debug(logs, f"Parsed sync_push_option='{sync_push_option}'.")
     _log_debug(logs, f"Parsed base_commit='{base_commit or '(none)'}'.")
     _log_debug(logs, f"Parsed git_user selection='{git_user_selection or '(none)'}'.")
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
@@ -1037,6 +1039,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "allow_empty_commit": "true" if allow_empty_commit else "",
         "git_user_selection": git_user_selection,
         "branch_mode": branch_mode,
+        "sync_push_option": sync_push_option,
         "base_commit": base_commit,
     }
 
@@ -1075,12 +1078,16 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "mirror_repository" and not mirror_repository_url:
-        _log_debug(logs, "Repository B URL missing for mirror mode.")
-        logs.append(_timestamped("Repository B URL is required for mirror mode."))
+        _log_debug(logs, "Repository B URL missing for sync mode.")
+        logs.append(_timestamped("Repository B URL is required for sync mode."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "mirror_repository" and repository_url == mirror_repository_url:
-        _log_debug(logs, "Repository A and Repository B are identical in mirror mode.")
-        logs.append(_timestamped("Repository A and Repository B must be different for mirror mode."))
+        _log_debug(logs, "Repository A and Repository B are identical in sync mode.")
+        logs.append(_timestamped("Repository A and Repository B must be different for sync mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "mirror_repository" and sync_push_option not in {"all", "mirror"}:
+        _log_debug(logs, "Invalid sync push option.")
+        logs.append(_timestamped("Sync method must be either all branches or mirror all refs."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
         _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
@@ -1129,18 +1136,19 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 )
                 if clone_result.returncode != 0:
                     raise RuntimeError("git clone --mirror failed")
-                logs.append(_timestamped(f"Pushing mirrored refs to Repository B: {mirror_repository_url}"))
+                push_flag = "--mirror" if sync_push_option == "mirror" else "--all"
+                logs.append(_timestamped(f"Syncing Repository A to Repository B with git push {push_flag}: {mirror_repository_url}"))
                 push_result = await run_git_command(
                     "push",
-                    "--mirror",
+                    push_flag,
                     mirror_repository_url,
                     cwd=mirror_dir,
                     env=env,
                     log=logs,
                 )
                 if push_result.returncode != 0:
-                    raise RuntimeError("git push --mirror failed")
-                logs.append(_timestamped("Repository A was mirrored to Repository B successfully."))
+                    raise RuntimeError(f"git push {push_flag} failed")
+                logs.append(_timestamped("Repository A was synced to Repository B successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}
 
