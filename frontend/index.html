@@ -1479,7 +1479,7 @@
             gitUsers.forEach((entry) => {
                 const option = document.createElement("option");
                 option.value = entry.login;
-                option.textContent = entry.name + " (@" + entry.login + ") <" + entry.email + ">";
+                option.textContent = entry.name + " <" + entry.email + "> (@" + entry.login + ")";
                 gitUserField.appendChild(option);
             });
         }
