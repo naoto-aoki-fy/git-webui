@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend refreshes the list when it starts, proactively refreshes it one hour after the last refresh, and refreshes it on demand with the UI's **Refresh GitHub lists** button. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
+- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list when it starts and on demand with the UI's **Refresh GitHub lists** button; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
 - Git author identity discovery from authenticated GitHub accounts. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The repository owner is selected by default, with optional repository-name matching overrides.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.

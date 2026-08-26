@@ -2,7 +2,7 @@ import asyncio
 import json
 import tempfile
 import unittest
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
@@ -18,7 +18,6 @@ from backend.app import (
     _write_github_cache,
     create_app,
     refresh_github_listing_on_startup,
-    stop_github_refresh,
 )
 
 
@@ -108,7 +107,7 @@ class GithubUsersTests(unittest.TestCase):
         self.assertEqual(listing["github_repositories"], payload["github_repositories"])
         command.assert_not_awaited()
 
-    def test_cache_is_stale_after_one_hour(self) -> None:
+    def test_cache_does_not_expire_automatically(self) -> None:
         refreshed_at = datetime(2026, 1, 1, tzinfo=UTC)
         payload = {
             "github_users": [{"id": 1, "login": "octocat", "name": "Octo Cat", "email": "1+octocat@users.noreply.github.com"}],
@@ -119,8 +118,7 @@ class GithubUsersTests(unittest.TestCase):
             "backend.app.REPO_ROOT", Path(tmpdir)
         ):
             _write_github_cache(payload, refreshed_at)
-            self.assertIsNotNone(_read_github_cache(refreshed_at + timedelta(minutes=59)))
-            self.assertIsNone(_read_github_cache(refreshed_at + timedelta(hours=1)))
+            self.assertIsNotNone(_read_github_cache())
 
     def test_forced_refresh_replaces_existing_cache(self) -> None:
         old_payload = {
@@ -146,7 +144,7 @@ class GithubUsersTests(unittest.TestCase):
         accounts.assert_awaited_once()
         self.assertEqual(listing["github_users"][0]["login"], "new-user")
 
-    def test_startup_forces_refresh_and_starts_background_task(self) -> None:
+    def test_startup_forces_refresh_without_starting_background_task(self) -> None:
         async def exercise() -> None:
             app = create_app(serve_frontend=False)
             with mock.patch(
@@ -154,9 +152,7 @@ class GithubUsersTests(unittest.TestCase):
             ) as listing:
                 await refresh_github_listing_on_startup(app)
                 listing.assert_awaited_once_with(force_refresh=True)
-                self.assertFalse(app["github_refresh_task"].done())
-                await stop_github_refresh(app)
-                self.assertTrue(app["github_refresh_task"].done())
+                self.assertNotIn("github_refresh_task", app)
 
         asyncio.run(exercise())
 
