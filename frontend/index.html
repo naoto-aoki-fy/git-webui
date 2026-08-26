@@ -42,6 +42,27 @@
             --text-logs: #edf2f7;
             --shadow-logs: inset 0 0 8px rgba(0,0,0,0.4);
         }
+        @media (prefers-color-scheme: dark) {
+            body:not([data-theme="light"]):not([data-theme="dark"]) {
+                color-scheme: dark;
+                --bg-body: #111827;
+                --text-body: #e5e7eb;
+                --bg-main: #1f2937;
+                --shadow-main: 0 4px 18px rgba(0,0,0,0.4);
+                --border-color: #4b5563;
+                --bg-input: #374151;
+                --bg-secondary-button: #6b7280;
+                --bg-secondary-button-hover: #4b5563;
+                --text-subtle: #cbd5e1;
+                --bg-status-pill: #334155;
+                --text-status-pill: #e2e8f0;
+                --bg-modal: #1f2937;
+                --shadow-modal: 0 20px 40px rgba(0, 0, 0, 0.45);
+                --bg-logs: #1a202c;
+                --text-logs: #edf2f7;
+                --shadow-logs: inset 0 0 8px rgba(0,0,0,0.4);
+            }
+        }
         body {
             font-family: system-ui, sans-serif;
             margin: 2rem;
@@ -700,23 +721,11 @@
     let manualDisconnect = false;
     let isSubmitting = false;
     let generatedCandidates = [];
-    const systemThemeMediaQuery =
-        typeof window !== "undefined" && typeof window.matchMedia === "function"
-            ? window.matchMedia("(prefers-color-scheme: dark)")
-            : null;
-
-    const getSystemTheme = () => {
-        if (!systemThemeMediaQuery) {
-            return "light";
-        }
-        return systemThemeMediaQuery.matches ? "dark" : "light";
-    };
-
     const applyTheme = (mode) => {
-        const theme = mode === "auto" ? getSystemTheme() : mode === "dark" ? "dark" : "light";
+        const theme = mode === "dark" ? "dark" : mode === "light" ? "light" : "auto";
         document.body.setAttribute("data-theme", theme);
         if (themeModeField) {
-            themeModeField.value = mode === "auto" ? "auto" : theme;
+            themeModeField.value = theme;
         }
     };
 
@@ -2060,14 +2069,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     }
     generateServiceNameField.addEventListener("input", saveGenerateSettings);
     generateUrlTemplateField.addEventListener("input", saveGenerateSettings);
-    if (systemThemeMediaQuery) {
-        systemThemeMediaQuery.addEventListener("change", () => {
-            if (window.localStorage.getItem(THEME_STORAGE_KEY) === "auto") {
-                applyTheme("auto");
-            }
-        });
-    }
-
     if (resultCloseButton) {
         resultCloseButton.addEventListener("click", hideResultModal);
     }
