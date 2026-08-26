@@ -721,6 +721,7 @@
     let manualDisconnect = false;
     let isSubmitting = false;
     let generatedCandidates = [];
+    let candidateGenerationController = null;
     const applyTheme = (mode) => {
         const theme = mode === "dark" ? "dark" : mode === "light" ? "light" : "auto";
         document.body.setAttribute("data-theme", theme);
@@ -1823,8 +1824,10 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             return;
         }
         saveOpenAISettings();
-        generateCandidatesButton.disabled = true;
-        generateCandidatesButton.textContent = "Generating…";
+        const controller = new AbortController();
+        candidateGenerationController = controller;
+        generateCandidatesButton.textContent = "Stop generating";
+        generateCandidatesButton.setAttribute("aria-label", "Stop generating suggestions");
         candidatePanel.classList.remove("hidden");
         setCandidatePanelExpanded(true);
         candidateStatus.textContent = "Requesting suggestions directly from the configured endpoint…";
@@ -1835,6 +1838,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         try {
             const response = await fetch(endpoint, {
                 method: "POST",
+                signal: controller.signal,
                 headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
                 body: JSON.stringify(buildOpenAIRequestBody({
                     ...buildCandidateResponseFormat(outputFormat),
@@ -1855,13 +1859,28 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             if (!content) throw new Error("Endpoint response did not contain message content.");
             renderCandidates(OpenAIRequestSettings.parseCandidateResponse(content, outputFormat));
         } catch (error) {
+            if (controller.signal.aborted) {
+                candidateStatus.textContent = "Generation stopped.";
+                return;
+            }
             console.error("Commit suggestion generation failed", error);
             candidateStatus.textContent = "Generation failed: " + (error.message || "Unknown error");
         } finally {
-            clearCandidateProgress();
-            generateCandidatesButton.disabled = false;
-            generateCandidatesButton.textContent = "Generate suggestions";
+            if (candidateGenerationController === controller) {
+                candidateGenerationController = null;
+                clearCandidateProgress();
+                generateCandidatesButton.textContent = "Generate suggestions";
+                generateCandidatesButton.setAttribute("aria-label", "Generate suggestions");
+            }
         }
+    };
+
+    const handleGenerateCandidatesClick = () => {
+        if (candidateGenerationController) {
+            candidateGenerationController.abort();
+            return;
+        }
+        generateCommitCandidates();
     };
 
     const patchCopyPrompt = `You are a professional commit message generator. Based on the changes described after “---- Changes ----”, propose 2–5 English Git commit message candidates.\n\nOutput requirements:\n\n* It is preferable to follow the Conventional Commits format.\n* The body be a bulleted list (-) with about 0–5 lines.\n* Please output each commit message inside a code block.\n* Differentiate each candidate so that expressions and level of detail (short / standard / more detailed) do not overlap.\n\nEvaluation requirements:\n\n* Immediately after each candidate, always include (in ${languageName}) a “Recommended adoption level” (⭐⭐⭐☆☆) and a “Reason” (${languageName}, 1–3 sentences).\n* In the reason, include perspectives on coverage of the changes, clarity, conformity to Conventional Commits, and future searchability (appropriateness of scope/type).\n\n---- Changes ----\n\n\n`;
@@ -1970,7 +1989,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         copyPatchButton.addEventListener("click", copyPatchToClipboard);
     }
     if (generateCandidatesButton) {
-        generateCandidatesButton.addEventListener("click", generateCommitCandidates);
+        generateCandidatesButton.addEventListener("click", handleGenerateCandidatesClick);
     }
     if (candidateToggle) {
         candidateToggle.addEventListener("click", () => {
