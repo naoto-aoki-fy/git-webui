@@ -256,6 +256,8 @@
     };
 
     return {
+        candidateSchema,
+        validateCandidateResponse,
         buildOpenAIRequestBody,
         buildCandidateResponseFormat,
         parseCandidateResponse,

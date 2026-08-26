@@ -457,19 +457,25 @@
                 <p class="subtle">Use <code>{message}</code> where the URL-encoded prompt should be inserted. These prompt generation settings are saved in your browser.</p>
             </div>
             <div>
+                <label for="llm_provider">Suggestion provider</label>
+                <select id="llm_provider">
+                    <option value="openai">OpenAI-compatible</option>
+                    <option value="codex">Codex App Server (local/experimental)</option>
+                </select>
+            </div>
+            <div id="openai_settings_group">
                 <label for="openai_endpoint_url">OpenAI-compatible endpoint</label>
                 <input type="text" id="openai_endpoint_url" value="https://api.openai.com/v1/chat/completions" placeholder="https://api.openai.com/v1/chat/completions">
-            </div>
-            <div>
+                <br><br>
                 <label for="openai_authorization_token">Authorization Token</label>
                 <input type="password" id="openai_authorization_token" autocomplete="off" placeholder="Bearer token">
                 <p class="subtle">The endpoint and token are stored only in this browser's localStorage. The browser calls the endpoint directly, so it must allow CORS requests from this page.</p>
             </div>
-            <div>
+            <div class="openai-setting">
                 <label for="openai_model">Model</label>
                 <input type="text" id="openai_model" value="gpt-4o-mini" placeholder="gpt-4o-mini">
             </div>
-            <div>
+            <div class="openai-setting">
                 <label for="openai_candidate_output_format">Candidate output format</label>
                 <select id="openai_candidate_output_format">
                     <option value="ndjson">NDJSON</option>
@@ -478,10 +484,19 @@
                 </select>
                 <p class="subtle">JSON modes require an endpoint and model that support the corresponding <code>response_format</code>.</p>
             </div>
-            <div>
+            <div class="openai-setting">
                 <label for="openai_additional_request_parameters">Additional request parameters</label>
                 <textarea id="openai_additional_request_parameters" placeholder='{"reasoning_effort":"none"}'></textarea>
                 <p class="subtle">Optional. The value must be a JSON object only; for example, <code>{"reasoning_effort":"none"}</code>.</p>
+            </div>
+            <div id="codex_settings_group" class="hidden">
+                <label for="codex_endpoint_url">App Server WebSocket endpoint</label>
+                <input type="text" id="codex_endpoint_url" value="ws://127.0.0.1:4500" placeholder="ws://127.0.0.1:4500">
+                <p class="subtle">Direct WebSocket support is intended for a local Codex App Server only.</p>
+                <label for="codex_model">Model</label>
+                <select id="codex_model"><option value="">Server default</option></select>
+                <button type="button" class="button secondary" id="codex_connect">Connect and load models</button>
+                <span id="codex_connection_status" class="subtle">Disconnected</span>
             </div>
         </div>
         <div id="new_branch_group" class="hidden">
@@ -598,6 +613,10 @@
     </div>
 </div>
 <script src="openai-request-settings.js"></script>
+<script src="candidate-contract.js"></script>
+<script src="openai-candidate-provider.js"></script>
+<script src="codex-app-server-client.js"></script>
+<script src="codex-candidate-provider.js"></script>
 <script>
     const form = document.getElementById("apply_form");
     const submitButton = document.getElementById("submit_button");
@@ -613,7 +632,7 @@
         revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
         merge_branches: "Fast-forward Branch A to Branch B, then delete Branch B after success.",
         mirror_repository: "Sync Repository A to Repository B. Push all branches by default, or select the previous mirror behavior.",
-        config: "Configure backend and OpenAI settings without applying repository changes.",
+        config: "Configure backend and LLM provider settings without applying repository changes.",
     };
     const configGroup = document.getElementById("config_group");
     const repositoryGroup = document.getElementById("repository_group");
@@ -656,6 +675,13 @@
     const openAIModelField = document.getElementById("openai_model");
     const openAICandidateOutputFormatField = document.getElementById("openai_candidate_output_format");
     const openAIAdditionalRequestParametersField = document.getElementById("openai_additional_request_parameters");
+    const llmProviderField = document.getElementById("llm_provider");
+    const openAISettingsGroup = document.getElementById("openai_settings_group");
+    const codexSettingsGroup = document.getElementById("codex_settings_group");
+    const codexEndpointField = document.getElementById("codex_endpoint_url");
+    const codexModelField = document.getElementById("codex_model");
+    const codexConnectButton = document.getElementById("codex_connect");
+    const codexConnectionStatus = document.getElementById("codex_connection_status");
     const generateCandidatesButton = document.getElementById("generate_commit_candidates");
     const candidatePanel = document.getElementById("commit_candidate_panel");
     const candidateToggle = document.getElementById("commit_candidate_toggle");
@@ -744,6 +770,7 @@
     const THEME_STORAGE_KEY = "git-webui.theme";
     const GENERATE_SETTINGS_STORAGE_KEY = "git-webui.generateSettings";
     const OPENAI_SETTINGS_STORAGE_KEY = "git-webui.openAISettings";
+    const LLM_SETTINGS_STORAGE_KEY = "git-webui.llmSettings.v2";
     const DEFAULT_GENERATE_SERVICE_NAME = "ChatGPT";
     const DEFAULT_GENERATE_URL_TEMPLATE = "https://chatgpt.com/#?q={message}";
     const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
@@ -761,6 +788,7 @@
     let isSubmitting = false;
     let generatedCandidates = [];
     let candidateGenerationController = null;
+    let codexProvider = null;
     const applyTheme = (mode) => {
         const theme = mode === "dark" ? "dark" : mode === "light" ? "light" : "auto";
         document.body.setAttribute("data-theme", theme);
@@ -1808,34 +1836,53 @@ ${format === "ndjson" ? `- Output only JSON Lines (NDJSON), with no Markdown, co
 ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candidate must have recommended set to true." : "- recommended_candidate_id must match exactly one generated candidate id."}
 - Do not add properties not defined above.`;
 
-    const readOpenAISettings = () => {
-        try {
-            const settings = JSON.parse(window.localStorage.getItem(OPENAI_SETTINGS_STORAGE_KEY));
-            if (settings && typeof settings.endpoint === "string") openAIEndpointField.value = settings.endpoint;
-            if (settings && typeof settings.token === "string") openAITokenField.value = settings.token;
-            if (settings && typeof settings.model === "string") openAIModelField.value = settings.model;
-            if (settings && ["ndjson", "flat_json", "structured_json"].includes(settings.candidateOutputFormat)) {
-                openAICandidateOutputFormatField.value = settings.candidateOutputFormat;
-            }
-            if (settings && typeof settings.additionalRequestParameters === "string") {
-                openAIAdditionalRequestParametersField.value = settings.additionalRequestParameters;
-            }
-        } catch (error) {
-            console.warn("Unable to read OpenAI-compatible endpoint settings", error);
-        }
-    };
-
-    const saveOpenAISettings = () => {
-        window.localStorage.setItem(OPENAI_SETTINGS_STORAGE_KEY, JSON.stringify({
-            endpoint: openAIEndpointField.value,
-            token: openAITokenField.value,
-            model: openAIModelField.value,
+    const currentLLMSettings = () => ({
+        provider: llmProviderField.value,
+        openai: {
+            endpoint: openAIEndpointField.value, token: openAITokenField.value, model: openAIModelField.value,
             candidateOutputFormat: openAICandidateOutputFormatField.value,
             additionalRequestParameters: openAIAdditionalRequestParametersField.value,
-        }));
+        },
+        codex: {endpoint: codexEndpointField.value, model: codexModelField.value},
+    });
+
+    const updateProviderSettingsVisibility = () => {
+        const codex = llmProviderField.value === "codex";
+        openAISettingsGroup.classList.toggle("hidden", codex);
+        document.querySelectorAll(".openai-setting").forEach((field) => field.classList.toggle("hidden", codex));
+        codexSettingsGroup.classList.toggle("hidden", !codex);
     };
 
-    const {buildCandidateResponseFormat, buildOpenAIRequestBody} = OpenAIRequestSettings;
+    const readLLMSettings = () => {
+        try {
+            let settings = JSON.parse(window.localStorage.getItem(LLM_SETTINGS_STORAGE_KEY));
+            if (!settings) {
+                const legacy = JSON.parse(window.localStorage.getItem(OPENAI_SETTINGS_STORAGE_KEY));
+                if (legacy) settings = {provider: "openai", openai: legacy, codex: {}};
+            }
+            llmProviderField.value = settings?.provider === "codex" ? "codex" : "openai";
+            const openai = settings?.openai;
+            const codex = settings?.codex;
+            if (openai && typeof openai.endpoint === "string") openAIEndpointField.value = openai.endpoint;
+            if (openai && typeof openai.token === "string") openAITokenField.value = openai.token;
+            if (openai && typeof openai.model === "string") openAIModelField.value = openai.model;
+            if (openai && ["ndjson", "flat_json", "structured_json"].includes(openai.candidateOutputFormat)) {
+                openAICandidateOutputFormatField.value = openai.candidateOutputFormat;
+            }
+            if (openai && typeof openai.additionalRequestParameters === "string") {
+                openAIAdditionalRequestParametersField.value = openai.additionalRequestParameters;
+            }
+            if (codex && typeof codex.endpoint === "string") codexEndpointField.value = codex.endpoint;
+            if (codex && typeof codex.model === "string" && codex.model) {
+                codexModelField.append(new Option(codex.model, codex.model)); codexModelField.value = codex.model;
+            }
+        } catch (error) {
+            console.warn("Unable to read LLM provider settings", error);
+        }
+        updateProviderSettingsVisibility();
+    };
+
+    const saveLLMSettings = () => window.localStorage.setItem(LLM_SETTINGS_STORAGE_KEY, JSON.stringify(currentLLMSettings()));
 
     const setCandidatePanelExpanded = (expanded) => {
         candidateToggle.setAttribute("aria-expanded", String(expanded));
@@ -1899,49 +1946,43 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     };
 
     const generateCommitCandidates = async () => {
-        const endpoint = openAIEndpointField.value.trim() || DEFAULT_OPENAI_ENDPOINT;
-        const token = openAITokenField.value.trim();
-        const model = openAIModelField.value.trim();
-        const outputFormat = openAICandidateOutputFormatField.value;
-        if (!token || !model) {
+        const isCodex = llmProviderField.value === "codex";
+        const outputFormat = isCodex ? "structured_json" : openAICandidateOutputFormatField.value;
+        if (!isCodex && (!openAITokenField.value.trim() || !openAIModelField.value.trim())) {
             alert("Enter an Authorization Token and model before generating suggestions.");
             return;
         }
-        saveOpenAISettings();
+        if (isCodex && !codexEndpointField.value.trim()) {
+            alert("Enter a Codex App Server endpoint before generating suggestions."); return;
+        }
+        saveLLMSettings();
         const controller = new AbortController();
         candidateGenerationController = controller;
         generateCandidatesButton.textContent = "Stop generating";
         generateCandidatesButton.setAttribute("aria-label", "Stop generating suggestions");
         candidatePanel.classList.remove("hidden");
         setCandidatePanelExpanded(true);
-        candidateStatus.textContent = "Requesting suggestions directly from the configured endpoint…";
+        candidateStatus.textContent = isCodex ? "Requesting suggestions from Codex App Server…" :
+            "Requesting suggestions directly from the configured endpoint…";
         candidateList.replaceChildren();
         setCandidateProgress("");
         candidateRawLabel.textContent = outputFormat === "ndjson" ? "Raw NDJSON" : "Raw JSON";
         setCandidateThinking("");
         try {
-            const response = await fetch(endpoint, {
-                method: "POST",
-                signal: controller.signal,
-                headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
-                body: JSON.stringify(buildOpenAIRequestBody({
-                    ...buildCandidateResponseFormat(outputFormat),
-                    model,
-                    messages: [
-                        {role: "system", content: buildCommitCandidateSystemPrompt(outputFormat)},
-                        {role: "user", content: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value)},
-                    ],
-                    stream: true,
-                }, openAIAdditionalRequestParametersField.value)),
+            const provider = isCodex ? (codexProvider ||= new CodexCandidateProvider({
+                endpoint: codexEndpointField.value.trim(), model: codexModelField.value,
+            })) : new OpenAICandidateProvider({
+                endpoint: openAIEndpointField.value.trim() || DEFAULT_OPENAI_ENDPOINT,
+                token: openAITokenField.value.trim(), model: openAIModelField.value.trim(), outputFormat,
+                additionalRequestParameters: openAIAdditionalRequestParametersField.value,
             });
-            if (!response.ok) throw new Error("Endpoint returned HTTP " + response.status + ".");
-            const {content} = await OpenAIRequestSettings.readStreamingMessageContent(
-                response,
-                setCandidateProgress,
-                setCandidateThinking,
-            );
-            if (!content) throw new Error("Endpoint response did not contain message content.");
-            renderCandidates(OpenAIRequestSettings.parseCandidateResponse(content, outputFormat));
+            if (isCodex) provider.settings.model = codexModelField.value;
+            renderCandidates(await provider.generateCandidates({
+                systemPrompt: buildCommitCandidateSystemPrompt(outputFormat),
+                userPrompt: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value),
+                outputSchema: CandidateContract.candidateSchema, signal: controller.signal,
+                onContent: setCandidateProgress, onReasoning: setCandidateThinking,
+            }));
         } catch (error) {
             if (controller.signal.aborted) {
                 candidateStatus.textContent = "Generation stopped.";
@@ -2092,10 +2133,29 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         });
     }
     [openAIEndpointField, openAITokenField, openAIModelField, openAICandidateOutputFormatField,
-        openAIAdditionalRequestParametersField].forEach((field) => {
-        field.addEventListener("change", saveOpenAISettings);
+        openAIAdditionalRequestParametersField, codexModelField].forEach((field) => {
+        field.addEventListener("change", saveLLMSettings);
     });
-    readOpenAISettings();
+    llmProviderField.addEventListener("change", () => { updateProviderSettingsVisibility(); saveLLMSettings(); });
+    codexEndpointField.addEventListener("change", async () => {
+        await codexProvider?.disconnect(); codexProvider = null; codexConnectionStatus.textContent = "Disconnected"; saveLLMSettings();
+    });
+    codexConnectButton.addEventListener("click", async () => {
+        codexConnectButton.disabled = true; codexConnectionStatus.textContent = "Connecting…";
+        try {
+            codexProvider ||= new CodexCandidateProvider({endpoint: codexEndpointField.value.trim(), model: codexModelField.value});
+            const selected = codexModelField.value;
+            const models = await codexProvider.listModels();
+            codexModelField.replaceChildren(new Option("Server default", ""));
+            models.forEach((model) => {
+                const id = model.id || model.model; if (id) codexModelField.append(new Option(model.displayName || id, id));
+            });
+            codexModelField.value = selected; codexConnectionStatus.textContent = "Connected"; saveLLMSettings();
+        } catch (error) {
+            codexConnectionStatus.textContent = "Connection failed: " + error.message;
+        } finally { codexConnectButton.disabled = false; }
+    });
+    readLLMSettings();
     readGenerateSettings();
     updateChatGPTLink();
     refreshStoredSelections();

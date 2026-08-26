@@ -1664,9 +1664,16 @@ async def frontend_handler(request: web.Request) -> web.Response:
     return web.FileResponse(frontend_root / "index.html")
 
 
-async def frontend_openai_settings_handler(request: web.Request) -> web.Response:
+async def frontend_script_handler(request: web.Request) -> web.Response:
     frontend_root = request.app["frontend_root"]
-    return web.FileResponse(frontend_root / "openai-request-settings.js")
+    allowed = {
+        "openai-request-settings.js", "candidate-contract.js", "openai-candidate-provider.js",
+        "codex-app-server-client.js", "codex-candidate-provider.js",
+    }
+    script = request.match_info["script"]
+    if script not in allowed:
+        raise web.HTTPNotFound()
+    return web.FileResponse(frontend_root / script)
 
 
 def _sse_payload(message: Dict[str, object]) -> str:
@@ -1847,7 +1854,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
         app["frontend_root"] = frontend_root
         app.router.add_route("GET", "/", frontend_handler)
         app.router.add_route("GET", "/index.html", frontend_handler)
-        app.router.add_route("GET", "/openai-request-settings.js", frontend_openai_settings_handler)
+        app.router.add_route("GET", "/{script:.+\\.js}", frontend_script_handler)
     else:
         app.router.add_route("GET", "/", sse_handler)
     return app
