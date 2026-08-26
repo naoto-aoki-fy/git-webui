@@ -353,14 +353,6 @@
                 <input type="text" id="mirror_repository_owner" name="mirror_repository_owner" list="repository_owner_history" placeholder="Owner" aria-label="Repository B owner">
                 <input type="text" id="mirror_repository_name" name="mirror_repository_name" list="repository_name_history" placeholder="Repository name" aria-label="Repository B name">
             </div>
-            <div>
-                <label for="sync_push_option">Sync method</label>
-                <select id="sync_push_option" name="sync_push_option">
-                    <option value="all" selected>All branches (git push --all)</option>
-                    <option value="mirror">Mirror all refs (git push --mirror)</option>
-                </select>
-            </div>
-            <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Select “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
         </div>
         <div id="branch_group">
             <label for="branch">Branch (optional: use the current branch)</label>
@@ -400,6 +392,20 @@
                 </label>
             </div>
             <p class="subtle" id="mode_description">Apply a patch to the selected branch and create a commit.</p>
+        </div>
+        <div id="sync_method_group" class="hidden">
+            <label>Sync method</label>
+            <div class="toggle-group" role="radiogroup" aria-label="Sync method">
+                <label>
+                    <input type="radio" name="sync_push_option" value="all" checked>
+                    All branches (git push --all)
+                </label>
+                <label>
+                    <input type="radio" name="sync_push_option" value="mirror">
+                    Mirror all refs (git push --mirror)
+                </label>
+            </div>
+            <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Choose “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
         </div>
         <div id="config_group" class="field-group hidden">
             <div>
@@ -586,6 +592,7 @@
     const commitIdLabel = document.getElementById("base_commit_label");
     const branchGroup = document.getElementById("branch_group");
     const mirrorRepositoryGroup = document.getElementById("mirror_repository_group");
+    const syncMethodGroup = document.getElementById("sync_method_group");
     const mirrorRepositoryOwnerField = document.getElementById("mirror_repository_owner");
     const mirrorRepositoryField = document.getElementById("mirror_repository_name");
     const repositoryOwnerField = document.getElementById("repository_owner");
@@ -1260,6 +1267,9 @@
         const needsExistingBranch = selectedMode === "revert_to_commit" || selectedMode === "merge_branches";
         if (mirrorRepositoryGroup) {
             mirrorRepositoryGroup.classList.toggle("hidden", !isMirrorMode);
+        }
+        if (syncMethodGroup) {
+            syncMethodGroup.classList.toggle("hidden", !isMirrorMode);
         }
         if (mirrorRepositoryField) {
             if (isMirrorMode) {
