@@ -39,6 +39,12 @@
   const baseUrl = __BASE_URL__;
   const taskId = location.pathname.split("/").filter(Boolean).pop();
 
+  function alertMissingData(dataName) {
+    window.alert(
+      `Unable to find ${dataName}. Please reload the Codex page and try the bookmarklet again.`
+    );
+  }
+
   function buildTurnMdListMarkdown(turnsInfo) {
     if (!turnsInfo || typeof turnsInfo !== "object") {
       return [
@@ -368,7 +374,8 @@
   });
 
   if (!resultFindTask) {
-    throw new Error("No matching element found (taskId=" + JSON.stringify(taskId) + ").");
+    alertMissingData("the task data");
+    return;
   }
 
   const taskInfo = resultFindTask.parent;
@@ -386,27 +393,60 @@
     return keys.every((k) => String(k).startsWith(taskIdStr));
   });
 
-  const turnsInfo = resultTurnMapping ? resultTurnMapping.parent : null;
+  if (!resultTurnMapping) {
+    alertMissingData("the conversation data");
+    return;
+  }
 
-  const branchName = taskInfo.current_assistant_turn.branch;
-  const repoMapEntries = Object.entries(taskInfo.current_assistant_turn.environment.repo_map);
+  const turnsInfo = resultTurnMapping.parent;
+
+  const currentTurn = taskInfo.current_assistant_turn;
+  if (!currentTurn?.environment?.repo_map) {
+    alertMissingData("the current task environment");
+    return;
+  }
+
+  const branchName = currentTurn.branch;
+  if (typeof branchName !== "string" || !branchName) {
+    alertMissingData("the task branch");
+    return;
+  }
+
+  const repoMapEntries = Object.entries(currentTurn.environment.repo_map);
   if (repoMapEntries.length != 1) {
-    throw Error("repo_map has " + repoMapEntries.length + " entrie(s). (expected: 1)");
+    alertMissingData("a single task repository");
+    return;
   }
   const repoInfo = repoMapEntries[0][1];
-  const repo = repoInfo.repository_full_name;
+  const repo = repoInfo?.repository_full_name;
+  if (typeof repo !== "string") {
+    alertMissingData("the task repository name");
+    return;
+  }
   const repoParts = repo.split("/");
   if (repoParts.length !== 2 || !repoParts[0] || !repoParts[1]) {
-    throw new Error("Invalid repository_full_name: " + JSON.stringify(repo));
+    alertMissingData("the task repository name");
+    return;
   }
 
-  const outputItems = taskInfo.current_assistant_turn.output_items;
+  const outputItems = currentTurn.output_items;
+  if (!Array.isArray(outputItems)) {
+    alertMissingData("the task output");
+    return;
+  }
   const pr = outputItems.find((value) => value && value.type === "pr");
-  if (!pr) throw new Error("No PR output item found.");
+  if (!pr) {
+    alertMissingData("the pull request data");
+    return;
+  }
 
   const prMessage = buildTurnMdListMarkdown(turnsInfo);
 
-  const patchOriginal = pr?.output_diff?.diff ?? "";
+  const patchOriginal = pr?.output_diff?.diff;
+  if (typeof patchOriginal !== "string" || !patchOriginal) {
+    alertMissingData("the pull request patch");
+    return;
+  }
   const patch = reduceDiffContext(patchOriginal, 5);
 
   const url =
