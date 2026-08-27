@@ -1755,7 +1755,7 @@ async def frontend_script_handler(request: web.Request) -> web.Response:
     frontend_root = request.app["frontend_root"]
     allowed = {
         "openai-request-settings.js", "candidate-contract.js", "openai-candidate-provider.js",
-        "codex-app-server-client.js", "codex-candidate-provider.js",
+        "codex-app-server-client.js", "codex-candidate-provider.js", "commit-prompt.js",
     }
     script = request.match_info["script"]
     if script not in allowed:
