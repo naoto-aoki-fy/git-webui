@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, List, Optional, Set
+from typing import Awaitable, Callable, Dict, List, Optional, Set, TypedDict
 import traceback
 
 from aiohttp import web
@@ -33,6 +33,12 @@ class ServerListenConfig:
     host: Optional[str]
     port: Optional[int]
     path: Optional[str]
+
+
+class AddFileEntry(TypedDict):
+    path: str
+    content: str
+    overwrite: bool
 
 
 DEVNULL = "NUL" if os.name == "nt" else "/dev/null"
@@ -236,6 +242,38 @@ def _write_repo_file(
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8", newline="")
     return file_path
+
+
+def _parse_add_files(form: Dict[str, str]) -> List[AddFileEntry]:
+    """Return non-empty add-file entries, accepting the legacy single-file fields."""
+    raw_files = form.get("files", "")
+    if raw_files:
+        try:
+            decoded = json.loads(raw_files)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Files must be a valid JSON array.") from exc
+        if not isinstance(decoded, list):
+            raise RuntimeError("Files must be a valid JSON array.")
+        files: List[AddFileEntry] = []
+        for entry in decoded:
+            if not isinstance(entry, dict):
+                raise RuntimeError("Each file must define a path, content, and overwrite option.")
+            path = entry.get("path", "")
+            content = entry.get("content", "")
+            overwrite = entry.get("overwrite", False)
+            if not isinstance(path, str) or not isinstance(content, str) or not isinstance(overwrite, bool):
+                raise RuntimeError("Each file must define a path, content, and overwrite option.")
+            path = path.strip()
+            content = content.replace("\r\n", "\n")
+            if path and content:
+                files.append({"path": path, "content": content, "overwrite": overwrite})
+        return files
+
+    path = form.get("file_path", "").strip()
+    content = form.get("file_content", "").replace("\r\n", "\n")
+    if not path or not content:
+        return []
+    return [{"path": path, "content": content, "overwrite": form.get("overwrite") == "true"}]
 
 
 def _line_ending_snapshots(repo_dir: Path, patch_content: str) -> List[LineEndingSnapshot]:
@@ -1151,9 +1189,11 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
-    file_path = form.get("file_path", "").strip()
-    file_content = form.get("file_content", "").replace("\r\n", "\n")
-    overwrite = form.get("overwrite") == "true"
+    try:
+        add_files = _parse_add_files(form)
+    except RuntimeError as exc:
+        logs.append(_timestamped(str(exc)))
+        return {"form_values": dict(form), "success": False}
     if branch_mode in {"from_commit", "revert_to_commit", "mirror_repository"}:
         commit_message = ""
         allow_empty_commit = False
@@ -1170,7 +1210,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
-    _log_debug(logs, f"File path='{file_path or '(none)'}'; overwrite={overwrite}.")
+    _log_debug(logs, f"Parsed {len(add_files)} non-empty file(s).")
 
     target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "add_file", "merge_branches"} else None)
     form_values = {
@@ -1184,9 +1224,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "branch_mode": branch_mode,
         "sync_push_option": sync_push_option,
         "base_commit": base_commit,
-        "file_path": file_path,
-        "file_content": file_content,
-        "overwrite": "true" if overwrite else "",
+        "files": json.dumps(add_files),
     }
 
     user_name = ""
@@ -1224,8 +1262,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Remote repository URLs must use HTTPS."))
         return {"form_values": form_values, "success": False}
 
-    if branch_mode == "add_file" and not file_path:
-        logs.append(_timestamped("File path is required in add-file mode."))
+    if branch_mode == "add_file" and not add_files:
+        logs.append(_timestamped("At least one file with a non-empty path and content is required in add-file mode."))
         return {"form_values": form_values, "success": False}
     if branch_mode not in {"add_file", "from_commit", "revert_to_commit", "merge_branches", "mirror_repository"} and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
@@ -1607,9 +1645,12 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     raise RuntimeError("git pull failed")
 
             if branch_mode == "add_file":
-                written_path = _write_repo_file(repo_dir, file_path, file_content, overwrite)
-                logs.append(_timestamped(f"Wrote file: {written_path.relative_to(repo_dir.resolve())}"))
-                _log_debug(logs, "File content written successfully.")
+                for add_file in add_files:
+                    written_path = _write_repo_file(
+                        repo_dir, add_file["path"], add_file["content"], add_file["overwrite"]
+                    )
+                    logs.append(_timestamped(f"Wrote file: {written_path.relative_to(repo_dir.resolve())}"))
+                _log_debug(logs, "File contents written successfully.")
             elif patch_content.strip():
                 patch_path = workdir / "patch.diff"
                 logs.append(_timestamped(patch_content))

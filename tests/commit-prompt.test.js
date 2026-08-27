@@ -19,7 +19,19 @@ test("reflects all user-entered add-file details", () => {
 });
 
 test("uses a safe fence when add-file content contains backticks", () => {
-    const prompt = buildUserChangesPrompt({branchMode: "add_file", fileContent: "before\n```\nafter", overwrite: false});
+    const prompt = buildUserChangesPrompt({branchMode: "add_file", filePath: "example.txt",
+        fileContent: "before\n```\nafter", overwrite: false});
     assert.match(prompt, /Overwrite existing file: disabled/);
     assert.match(prompt, /````text\nbefore\n```\nafter\n````/);
+});
+
+test("includes multiple non-empty files and each overwrite option", () => {
+    const prompt = buildUserChangesPrompt({branchMode: "add_file", files: [
+        {path: "one.txt", content: "one", overwrite: false},
+        {path: "ignored.txt", content: "", overwrite: true},
+        {path: "two.txt", content: "two", overwrite: true},
+    ]});
+    assert.match(prompt, /File 1:[\s\S]*File path: one\.txt[\s\S]*disabled/);
+    assert.doesNotMatch(prompt, /ignored\.txt/);
+    assert.match(prompt, /File 2:[\s\S]*File path: two\.txt[\s\S]*enabled/);
 });

@@ -2,10 +2,29 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app import _write_repo_file
+import json
+
+from backend.app import _parse_add_files, _write_repo_file
 
 
 class AddFileTests(unittest.TestCase):
+    def test_parses_multiple_files_and_ignores_empty_entries(self) -> None:
+        files = _parse_add_files({"files": json.dumps([
+            {"path": "first.txt", "content": "first", "overwrite": False},
+            {"path": "", "content": "ignored", "overwrite": True},
+            {"path": "empty.txt", "content": "", "overwrite": True},
+            {"path": "second.txt", "content": "second", "overwrite": True},
+        ])})
+
+        self.assertEqual(files, [
+            {"path": "first.txt", "content": "first", "overwrite": False},
+            {"path": "second.txt", "content": "second", "overwrite": True},
+        ])
+
+    def test_legacy_empty_name_or_content_is_ignored(self) -> None:
+        self.assertEqual(_parse_add_files({"file_path": "file.txt", "file_content": ""}), [])
+        self.assertEqual(_parse_add_files({"file_path": "", "file_content": "content"}), [])
+
     def test_creates_parent_directories_and_writes_content(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

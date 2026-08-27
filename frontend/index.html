@@ -149,6 +149,13 @@
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 1rem;
         }
+        .add-file-entry {
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+        .add-file-entry textarea { min-height: 140px; }
         .picker-field {
             display: flex;
             min-width: 0;
@@ -579,15 +586,9 @@
             <textarea id="patch" name="patch" placeholder="diff --git a/..."></textarea>
         </div>
         <div id="add_file_group" class="hidden">
-            <label for="file_path">File path</label>
-            <input type="text" id="file_path" name="file_path" placeholder="path/to/file.txt" disabled>
-            <label for="file_content">File content</label>
-            <textarea id="file_content" name="file_content" placeholder="Content to write" disabled></textarea>
-            <label>
-                <input type="checkbox" id="overwrite" name="overwrite" value="true" disabled>
-                Overwrite an existing file
-            </label>
-            <p class="subtle">When overwrite is not selected, the request fails if the file already exists.</p>
+            <div id="add_file_entries"></div>
+            <button type="button" class="button secondary" id="add_another_file">Add another file</button>
+            <p class="subtle">Files with an empty path or content are ignored. When overwrite is not selected, the request fails if that file already exists.</p>
         </div>
         <div id="pr_message_group">
             <label for="pr_message">Memo</label>
@@ -674,9 +675,8 @@
     const allowEmptyGroup = document.getElementById("allow_empty_group");
     const patchGroup = document.getElementById("patch_group");
     const addFileGroup = document.getElementById("add_file_group");
-    const filePathField = document.getElementById("file_path");
-    const fileContentField = document.getElementById("file_content");
-    const overwriteField = document.getElementById("overwrite");
+    const addFileEntries = document.getElementById("add_file_entries");
+    const addAnotherFileButton = document.getElementById("add_another_file");
     const prMessageGroup = document.getElementById("pr_message_group");
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
@@ -953,11 +953,9 @@
         if (patchField) {
             patchField.value = "";
         }
-        if (filePathField) {
-            filePathField.value = "";
-        }
-        if (fileContentField) {
-            fileContentField.value = "";
+        if (addFileEntries) {
+            addFileEntries.replaceChildren();
+            createAddFileEntry();
         }
         if (newBranchField) {
             newBranchField.value = "";
@@ -1184,6 +1182,32 @@
         return selected ? selected.value : "default";
     };
 
+    const collectAddFiles = () => Array.from(addFileEntries.querySelectorAll(".add-file-entry")).map((entry) => ({
+        path: entry.querySelector(".file-path").value,
+        content: entry.querySelector(".file-content").value,
+        overwrite: entry.querySelector(".file-overwrite").checked,
+    }));
+
+    const createAddFileEntry = (file = {}) => {
+        const entry = document.createElement("div");
+        entry.className = "add-file-entry";
+        entry.innerHTML = `
+            <label>File path</label>
+            <input type="text" class="file-path" placeholder="path/to/file.txt">
+            <label>File content</label>
+            <textarea class="file-content" placeholder="Content to write"></textarea>
+            <label><input type="checkbox" class="file-overwrite"> Overwrite an existing file</label>`;
+        entry.querySelector(".file-path").value = typeof file.path === "string" ? file.path : "";
+        entry.querySelector(".file-content").value = typeof file.content === "string" ? file.content : "";
+        entry.querySelector(".file-overwrite").checked = file.overwrite === true;
+        const enabled = getSelectedBranchMode() === "add_file";
+        entry.querySelectorAll("input, textarea").forEach((field) => { field.disabled = !enabled; });
+        addFileEntries.appendChild(entry);
+        return entry;
+    };
+
+    createAddFileEntry();
+
     const collectDraft = () => ({
         backend_url: backendUrlField ? backendUrlField.value : "",
         repository_owner: repositoryOwnerField.value,
@@ -1199,9 +1223,7 @@
         mirror_repository_owner: mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
         mirror_repository_name: mirrorRepositoryField ? mirrorRepositoryField.value : "",
         patch: patchField.value,
-        file_path: filePathField.value,
-        file_content: fileContentField.value,
-        overwrite: overwriteField.checked,
+        files: collectAddFiles(),
     });
 
     const defaultFormState = collectDraft();
@@ -1239,11 +1261,11 @@
         applyDraftValue(mirrorRepositoryOwnerField, draft.mirror_repository_owner);
         applyDraftValue(mirrorRepositoryField, draft.mirror_repository_name);
         applyDraftValue(patchField, draft.patch);
-        applyDraftValue(filePathField, draft.file_path);
-        applyDraftValue(fileContentField, draft.file_content);
-        if (typeof draft.overwrite === "boolean") {
-            overwriteField.checked = draft.overwrite;
-        }
+        const draftFiles = Array.isArray(draft.files) ? draft.files : [{
+            path: draft.file_path, content: draft.file_content, overwrite: draft.overwrite,
+        }];
+        addFileEntries.replaceChildren();
+        (draftFiles.length ? draftFiles : [{}]).forEach(createAddFileEntry);
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
         updateMirrorRepositoryLinkButton();
@@ -1468,10 +1490,10 @@
             togglePatchRequired();
         }
         addFileGroup.classList.toggle("hidden", !isAddFileMode);
-        [filePathField, fileContentField, overwriteField].forEach((field) => {
+        addFileEntries.querySelectorAll("input, textarea").forEach((field) => {
             field.disabled = !isAddFileMode;
         });
-        filePathField.required = isAddFileMode;
+        addAnotherFileButton.disabled = !isAddFileMode;
         if (isAddFileMode) {
             allowEmptyCommit.disabled = true;
             patchField.disabled = true;
@@ -1808,6 +1830,7 @@
         const payload = Object.fromEntries(new FormData(form).entries());
         const branchMode = payload.branch_mode || "default";
         delete payload.branch_mode;
+        if (branchMode === "add_file") payload.files = JSON.stringify(collectAddFiles());
         clearLogs();
         persistStoredSelections();
         setProcessingState(true);
@@ -1995,8 +2018,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         const branchMode = document.querySelector("input[name='branch_mode']:checked")?.value || "default";
         return CommitPrompt.buildUserChangesPrompt({
             branchMode, memo: prMessageField.value, patch: patchField.value,
-            filePath: filePathField.value, fileContent: fileContentField.value,
-            overwrite: overwriteField.checked,
+            files: collectAddFiles(),
         });
     };
 
@@ -2331,9 +2353,13 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     if (prMessageField) {
         prMessageField.addEventListener("input", updateChatGPTLink);
     }
-    [filePathField, fileContentField, overwriteField].forEach((field) => {
-        field.addEventListener("input", updateChatGPTLink);
-        field.addEventListener("change", updateChatGPTLink);
+    addFileEntries.addEventListener("input", updateChatGPTLink);
+    addFileEntries.addEventListener("change", updateChatGPTLink);
+    addAnotherFileButton.addEventListener("click", () => {
+        const entry = createAddFileEntry();
+        entry.querySelector(".file-path").focus();
+        scheduleDraftSave();
+        updateChatGPTLink();
     });
 
     const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
