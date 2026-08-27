@@ -632,6 +632,7 @@
 <script src="openai-candidate-provider.js"></script>
 <script src="codex-app-server-client.js"></script>
 <script src="codex-candidate-provider.js"></script>
+<script src="commit-prompt.js"></script>
 <script>
     const form = document.getElementById("apply_form");
     const submitButton = document.getElementById("submit_button");
@@ -1477,11 +1478,12 @@
             patchField.required = false;
             patchGroup.classList.add("hidden");
             if (pastePatchButton) pastePatchButton.disabled = true;
-            if (copyPatchButton) copyPatchButton.disabled = true;
+            if (copyPatchButton) copyPatchButton.disabled = false;
         }
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
         }
+        updateChatGPTLink();
     };
 
     const resetSelect = (select, message) => {
@@ -1989,12 +1991,13 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         candidateRawJson.textContent = "";
     };
 
-    const quotePatchForPrompt = (patch) => {
-        const backtickRuns = patch.match(/`+/g) || [];
-        const longestRun = backtickRuns.reduce((longest, run) => Math.max(longest, run.length), 0);
-        const fence = "`".repeat(Math.max(3, longestRun + 1));
-        const trailingNewline = patch.endsWith("\n") ? "" : "\n";
-        return fence + "diff\n" + patch + trailingNewline + fence + "\n";
+    const buildUserChangesPrompt = () => {
+        const branchMode = document.querySelector("input[name='branch_mode']:checked")?.value || "default";
+        return CommitPrompt.buildUserChangesPrompt({
+            branchMode, memo: prMessageField.value, patch: patchField.value,
+            filePath: filePathField.value, fileContent: fileContentField.value,
+            overwrite: overwriteField.checked,
+        });
     };
 
     const generateCommitCandidates = async () => {
@@ -2031,7 +2034,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             if (isCodex) provider.settings.model = codexModelField.value;
             renderCandidates(await provider.generateCandidates({
                 systemPrompt: buildCommitCandidateSystemPrompt(outputFormat),
-                userPrompt: prMessageField.value + "\n\n" + quotePatchForPrompt(patchField.value),
+                userPrompt: buildUserChangesPrompt(),
                 outputSchema: CandidateContract.candidateSchema, signal: controller.signal,
                 onContent: setCandidateProgress, onReasoning: setCandidateThinking,
             }));
@@ -2072,9 +2075,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         return (
             patchCopyPrompt +
             "\n" +
-            prMessageField.value +
-            "\n\n" +
-            quotePatchForPrompt(patchField.value) +
+            buildUserChangesPrompt() +
             "\n" +
             buildGeneratedAtComment()
         );
@@ -2330,6 +2331,10 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     if (prMessageField) {
         prMessageField.addEventListener("input", updateChatGPTLink);
     }
+    [filePathField, fileContentField, overwriteField].forEach((field) => {
+        field.addEventListener("input", updateChatGPTLink);
+        field.addEventListener("change", updateChatGPTLink);
+    });
 
     const startingBackend = backendUrlField && backendUrlField.value ? backendUrlField.value : getBackendUrl();
     const initialBackend = setBackendUrl(startingBackend);
