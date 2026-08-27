@@ -219,6 +219,25 @@ def _safe_repo_file_path(repo_dir: Path, relative_path: str) -> Optional[Path]:
     return resolved_candidate
 
 
+def _write_repo_file(
+    repo_dir: Path,
+    relative_path: str,
+    content: str,
+    overwrite: bool,
+) -> Path:
+    """Write a UTF-8 file inside a repository, optionally replacing it."""
+    file_path = _safe_repo_file_path(repo_dir, relative_path)
+    if file_path is None or not relative_path.strip() or Path(relative_path) == Path("."):
+        raise RuntimeError("File path must be a relative path inside the repository.")
+    if file_path.exists() and not overwrite:
+        raise RuntimeError(f"File already exists and overwrite is disabled: {relative_path}")
+    if file_path.exists() and not file_path.is_file():
+        raise RuntimeError(f"File path does not identify a regular file: {relative_path}")
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content, encoding="utf-8", newline="")
+    return file_path
+
+
 def _line_ending_snapshots(repo_dir: Path, patch_content: str) -> List[LineEndingSnapshot]:
     snapshots: List[LineEndingSnapshot] = []
     seen_paths: Set[Path] = set()
@@ -1132,6 +1151,9 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
+    file_path = form.get("file_path", "").strip()
+    file_content = form.get("file_content", "").replace("\r\n", "\n")
+    overwrite = form.get("overwrite") == "true"
     if branch_mode in {"from_commit", "revert_to_commit", "mirror_repository"}:
         commit_message = ""
         allow_empty_commit = False
@@ -1148,8 +1170,9 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
+    _log_debug(logs, f"File path='{file_path or '(none)'}'; overwrite={overwrite}.")
 
-    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "merge_branches"} else None)
+    target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "add_file", "merge_branches"} else None)
     form_values = {
         "repository_url": repository_url,
         "mirror_repository_url": mirror_repository_url,
@@ -1161,6 +1184,9 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "branch_mode": branch_mode,
         "sync_push_option": sync_push_option,
         "base_commit": base_commit,
+        "file_path": file_path,
+        "file_content": file_content,
+        "overwrite": "true" if overwrite else "",
     }
 
     user_name = ""
@@ -1198,7 +1224,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         logs.append(_timestamped("Remote repository URLs must use HTTPS."))
         return {"form_values": form_values, "success": False}
 
-    if branch_mode not in {"from_commit", "revert_to_commit", "merge_branches", "mirror_repository"} and not patch_content.strip() and not allow_empty_commit:
+    if branch_mode == "add_file" and not file_path:
+        logs.append(_timestamped("File path is required in add-file mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode not in {"add_file", "from_commit", "revert_to_commit", "merge_branches", "mirror_repository"} and not patch_content.strip() and not allow_empty_commit:
         _log_debug(logs, "Patch content missing or whitespace.")
         logs.append(_timestamped("Patch content is required unless empty commit is allowed."))
         return {"form_values": form_values, "success": False}
@@ -1318,7 +1347,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                         raise RuntimeError("git clean -fd failed before orphan creation")
                 else:
                     default_branch = await _resolve_default_branch(repo_dir, env, logs)
-                    if branch_mode == "default" and not branch:
+                    if branch_mode in {"default", "add_file"} and not branch:
                         branch = default_branch
                     target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
                     _log_debug(logs, "Resetting cached repository state to match remote default branch.")
@@ -1384,7 +1413,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                         raise RuntimeError("Failed to set git user.email")
                     _log_debug(logs, "git user.email configured.")
 
-            if branch_mode == "default" and not branch:
+            if branch_mode in {"default", "add_file"} and not branch:
                 default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
                 branch = default_branch
 
@@ -1577,7 +1606,11 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if pull_result.returncode != 0:
                     raise RuntimeError("git pull failed")
 
-            if patch_content.strip():
+            if branch_mode == "add_file":
+                written_path = _write_repo_file(repo_dir, file_path, file_content, overwrite)
+                logs.append(_timestamped(f"Wrote file: {written_path.relative_to(repo_dir.resolve())}"))
+                _log_debug(logs, "File content written successfully.")
+            elif patch_content.strip():
                 patch_path = workdir / "patch.diff"
                 logs.append(_timestamped(patch_content))
                 patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
@@ -1777,6 +1810,12 @@ async def submit_from_commit_handler(request: web.Request) -> web.Response:
     return await submit_handler(request)
 
 
+async def submit_add_file_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    request["forced_payload"] = _with_branch_mode(payload, "add_file")
+    return await submit_handler(request)
+
+
 async def submit_orphan_handler(request: web.Request) -> web.Response:
     payload = await _read_json_payload(request)
     request["forced_payload"] = _with_branch_mode(payload, "orphan")
@@ -1840,6 +1879,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
     app.router.add_route("POST", "/submit", submit_default_handler)
+    app.router.add_route("POST", "/submit/add_file", submit_add_file_handler)
     app.router.add_route("POST", "/submit/from_commit", submit_from_commit_handler)
     app.router.add_route("POST", "/submit/orphan", submit_orphan_handler)
     app.router.add_route("POST", "/submit/revert_to_commit", submit_revert_to_commit_handler)

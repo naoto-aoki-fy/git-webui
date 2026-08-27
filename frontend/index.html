@@ -337,8 +337,8 @@
 </head>
 <body>
 <main>
-    <h1>git apply --3way Web UI</h1>
-    <p>Apply a patch to a GitHub repository, commit it, and push the result.</p>
+    <h1>Git Change Web UI</h1>
+    <p>Apply a patch or add a file to a GitHub repository, commit it, and push the result.</p>
     <p>
         Drag this bookmarklet to your bookmarks bar to jump from Codex to this Web UI with task context prefilled:
         <a href=__CODEX_BOOKMARKLET_URL__>Open in git-webui</a>.
@@ -396,6 +396,10 @@
                 <label>
                     <input type="radio" name="branch_mode" value="default" checked>
                     Patch
+                </label>
+                <label>
+                    <input type="radio" name="branch_mode" value="add_file">
+                    Add file
                 </label>
                 <label>
                     <input type="radio" name="branch_mode" value="from_commit">
@@ -574,6 +578,17 @@
             </div>
             <textarea id="patch" name="patch" placeholder="diff --git a/..."></textarea>
         </div>
+        <div id="add_file_group" class="hidden">
+            <label for="file_path">File path</label>
+            <input type="text" id="file_path" name="file_path" placeholder="path/to/file.txt" disabled>
+            <label for="file_content">File content</label>
+            <textarea id="file_content" name="file_content" placeholder="Content to write" disabled></textarea>
+            <label>
+                <input type="checkbox" id="overwrite" name="overwrite" value="true" disabled>
+                Overwrite an existing file
+            </label>
+            <p class="subtle">When overwrite is not selected, the request fails if the file already exists.</p>
+        </div>
         <div id="pr_message_group">
             <label for="pr_message">Memo</label>
             <p>This memo will be used as a prompt for generating a commit message.</p>
@@ -627,6 +642,7 @@
 
     const branchModeDescriptions = {
         default: "Apply a patch to the selected branch and create a commit.",
+        add_file: "Add a file with the specified content, or replace it when overwrite is enabled.",
         from_commit: "Create a new branch from a base commit ID.",
         orphan: "Create a new orphan branch with no parent history.",
         revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
@@ -656,6 +672,10 @@
     const commitMessageGroup = document.getElementById("commit_message_group");
     const allowEmptyGroup = document.getElementById("allow_empty_group");
     const patchGroup = document.getElementById("patch_group");
+    const addFileGroup = document.getElementById("add_file_group");
+    const filePathField = document.getElementById("file_path");
+    const fileContentField = document.getElementById("file_content");
+    const overwriteField = document.getElementById("overwrite");
     const prMessageGroup = document.getElementById("pr_message_group");
     const gitUserField = document.getElementById("git_user");
     const commitMessageField = document.getElementById("commit_message");
@@ -932,6 +952,12 @@
         if (patchField) {
             patchField.value = "";
         }
+        if (filePathField) {
+            filePathField.value = "";
+        }
+        if (fileContentField) {
+            fileContentField.value = "";
+        }
         if (newBranchField) {
             newBranchField.value = "";
         }
@@ -1172,6 +1198,9 @@
         mirror_repository_owner: mirrorRepositoryOwnerField ? mirrorRepositoryOwnerField.value : "",
         mirror_repository_name: mirrorRepositoryField ? mirrorRepositoryField.value : "",
         patch: patchField.value,
+        file_path: filePathField.value,
+        file_content: fileContentField.value,
+        overwrite: overwriteField.checked,
     });
 
     const defaultFormState = collectDraft();
@@ -1209,6 +1238,11 @@
         applyDraftValue(mirrorRepositoryOwnerField, draft.mirror_repository_owner);
         applyDraftValue(mirrorRepositoryField, draft.mirror_repository_name);
         applyDraftValue(patchField, draft.patch);
+        applyDraftValue(filePathField, draft.file_path);
+        applyDraftValue(fileContentField, draft.file_content);
+        if (typeof draft.overwrite === "boolean") {
+            overwriteField.checked = draft.overwrite;
+        }
         clearCopyPatchIndicatorIfPatchChanged();
         updateRepositoryLinkButton();
         updateMirrorRepositoryLinkButton();
@@ -1237,6 +1271,9 @@
     });
 
     const getSubmitPathForMode = (branchMode) => {
+        if (branchMode === "add_file") {
+            return "/submit/add_file";
+        }
         if (branchMode === "from_commit") {
             return "/submit/from_commit";
         }
@@ -1315,6 +1352,8 @@
         }
         const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
+        const isAddFileMode = selectedMode === "add_file";
+        submitButton.textContent = isAddFileMode ? "Add File & Push" : "Apply Patch & Push";
         if (repositoryLabel) {
             repositoryLabel.textContent = isMirrorMode ? "Repository A (sync source)" : "Repository";
         }
@@ -1381,8 +1420,8 @@
             }
         }
         const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode || !(selectedMode === "default" || needsExistingBranch));
-        if (!isMirrorMode && (selectedMode === "default" || needsExistingBranch)) {
+        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode || !(selectedMode === "default" || isAddFileMode || needsExistingBranch));
+        if (!isMirrorMode && (selectedMode === "default" || isAddFileMode || needsExistingBranch)) {
             branchField.removeAttribute("disabled");
             if (needsExistingBranch) {
                 branchField.setAttribute("required", "");
@@ -1405,8 +1444,8 @@
         gitUserGroup.classList.toggle("hidden", hideDetails || noPatchMode);
         commitMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
         prMessageGroup.classList.toggle("hidden", hideDetails || noPatchMode);
-        allowEmptyGroup.classList.toggle("hidden", hideDetails || noPatchMode);
-        patchGroup.classList.toggle("hidden", hideDetails || noPatchMode || allowEmptyCommit.checked);
+        allowEmptyGroup.classList.toggle("hidden", hideDetails || noPatchMode || isAddFileMode);
+        patchGroup.classList.toggle("hidden", hideDetails || noPatchMode || isAddFileMode || allowEmptyCommit.checked);
         if (hideDetails || noPatchMode) {
             gitUserField.setAttribute("disabled", "");
             commitMessageField.setAttribute("disabled", "");
@@ -1426,6 +1465,19 @@
             prMessageField.removeAttribute("disabled");
             allowEmptyCommit.removeAttribute("disabled");
             togglePatchRequired();
+        }
+        addFileGroup.classList.toggle("hidden", !isAddFileMode);
+        [filePathField, fileContentField, overwriteField].forEach((field) => {
+            field.disabled = !isAddFileMode;
+        });
+        filePathField.required = isAddFileMode;
+        if (isAddFileMode) {
+            allowEmptyCommit.disabled = true;
+            patchField.disabled = true;
+            patchField.required = false;
+            patchGroup.classList.add("hidden");
+            if (pastePatchButton) pastePatchButton.disabled = true;
+            if (copyPatchButton) copyPatchButton.disabled = true;
         }
         if (pasteCommitMessageButton) {
             pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
