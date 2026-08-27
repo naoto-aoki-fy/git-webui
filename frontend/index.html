@@ -913,9 +913,15 @@
         document.querySelectorAll("main input, main textarea, main select, main button").forEach((control) => {
             control.disabled = processing;
         });
+        if (processing && submitButton) {
+            submitButton.disabled = false;
+            submitButton.textContent = "Stop operation";
+            submitButton.setAttribute("aria-label", "Stop Apply Patch and Push operation");
+        }
         if (!processing) {
             togglePatchRequired();
             toggleCommitField();
+            submitButton.removeAttribute("aria-label");
         }
     };
 
@@ -1020,6 +1026,10 @@
             setProcessingState(false);
             if (payload.success) {
                 clearProcessingFields();
+            }
+            if (payload.cancelled) {
+                showResultModal(false, "The operation was stopped. Review the logs for details.");
+                return;
             }
             showResultModal(
                 payload.success,
@@ -1330,6 +1340,23 @@
             appendLogLine("[client] SSE connection not ready.");
             updateLogStatus(false);
             setProcessingState(false);
+        }
+    };
+
+    const stopSubmission = async () => {
+        if (!activeClientId) return;
+        submitButton.disabled = true;
+        submitButton.textContent = "Stopping…";
+        try {
+            const response = await requestApi("POST", "/submit/cancel", {client_id: activeClientId});
+            if (!response.cancelled) {
+                appendLogLine("[client] No running operation was found.");
+                setProcessingState(false);
+            }
+        } catch (error) {
+            appendLogLine("[client] Failed to stop operation: " + (error.message || "Unknown error"));
+            submitButton.disabled = false;
+            submitButton.textContent = "Stop operation";
         }
     };
 
@@ -1808,6 +1835,7 @@
         event.preventDefault();
         event.stopPropagation();
         if (isSubmitting) {
+            stopSubmission();
             return;
         }
         if (

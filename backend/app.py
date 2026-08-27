@@ -423,7 +423,20 @@ async def run_command(
         cwd=str(cwd) if cwd else None,
         env=env,
     )
-    stdout, stderr = await process.communicate()
+    try:
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        # Cancelling a submission must also stop the command it is currently
+        # running; otherwise git could continue through a push after the UI
+        # reports that the operation was stopped.
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.communicate(), timeout=5)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.communicate()
+        raise
     stdout_text = stdout.decode("utf-8", errors="replace")
     stderr_text = stderr.decode("utf-8", errors="replace")
     if stdout_text and log is not None:
@@ -1822,10 +1835,39 @@ async def submit_handler(request: web.Request) -> web.Response:
     if not client_id:
         raise web.HTTPBadRequest(text="client_id is required")
 
+    submissions: Dict[str, asyncio.Task[Dict[str, object]]] = request.app["submissions"]
+    existing = submissions.get(client_id)
+    if existing is not None and not existing.done():
+        raise web.HTTPConflict(text="A submission is already running for this client")
+
     logs = LogSink(entries=[], emit=lambda message: _emit_to_client(request.app, client_id, message))
-    result = await process_submission(_normalize_form_payload(form_data), logs)
+    task = asyncio.create_task(process_submission(_normalize_form_payload(form_data), logs))
+    submissions[client_id] = task
+    try:
+        result = await task
+    except asyncio.CancelledError:
+        logs.append(_timestamped("Operation stopped by user."))
+        await _emit_to_client(
+            request.app, client_id, {"type": "complete", "success": False, "cancelled": True}
+        )
+        return web.json_response({"accepted": True, "cancelled": True})
+    finally:
+        if submissions.get(client_id) is task:
+            del submissions[client_id]
     await _emit_to_client(request.app, client_id, {"type": "complete", "success": result["success"]})
     return web.json_response({"accepted": True})
+
+
+async def cancel_submission_handler(request: web.Request) -> web.Response:
+    payload = await _read_json_payload(request)
+    client_id = str(payload.get("client_id", "")).strip()
+    if not client_id:
+        raise web.HTTPBadRequest(text="client_id is required")
+    task: Optional[asyncio.Task[Dict[str, object]]] = request.app["submissions"].get(client_id)
+    if task is None or task.done():
+        return web.json_response({"cancelled": False})
+    task.cancel()
+    return web.json_response({"cancelled": True})
 
 
 def _with_branch_mode(payload: Dict[str, object], branch_mode: str) -> Dict[str, object]:
@@ -1916,6 +1958,7 @@ async def refresh_github_listing_on_startup(_: web.Application) -> None:
 def create_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app["sse_clients"] = {}
+    app["submissions"] = {}
     app.on_startup.append(refresh_github_listing_on_startup)
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
@@ -1926,6 +1969,7 @@ def create_app(serve_frontend: bool = True) -> web.Application:
     app.router.add_route("POST", "/submit/revert_to_commit", submit_revert_to_commit_handler)
     app.router.add_route("POST", "/submit/merge_branches", submit_merge_branches_handler)
     app.router.add_route("POST", "/submit/mirror_repository", submit_mirror_repository_handler)
+    app.router.add_route("POST", "/submit/cancel", cancel_submission_handler)
     app.router.add_route("GET", "/config", config_handler)
     app.router.add_route("GET", "/health", health_handler)
     if serve_frontend:
