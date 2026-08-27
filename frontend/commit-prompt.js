@@ -24,5 +24,8 @@
         return description + "\n\nAdd file details:" + details;
     };
 
-    return {buildUserChangesPrompt, quoteForPrompt};
+    const shouldHideCommitMessageHelpers = ({allowEmptyCommit, branchMode}) =>
+        Boolean(allowEmptyCommit) && branchMode !== "add_file";
+
+    return {buildUserChangesPrompt, quoteForPrompt, shouldHideCommitMessageHelpers};
 });

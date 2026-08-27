@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const {buildUserChangesPrompt} = require("../frontend/commit-prompt.js");
+const {
+    buildUserChangesPrompt,
+    shouldHideCommitMessageHelpers,
+} = require("../frontend/commit-prompt.js");
 
 test("uses patch content for the normal mode", () => {
     const prompt = buildUserChangesPrompt({branchMode: "default", memo: "Fix greeting", patch: "+hello"});
@@ -34,4 +37,9 @@ test("includes multiple non-empty files and each overwrite option", () => {
     assert.match(prompt, /File 1:[\s\S]*File path: one\.txt[\s\S]*disabled/);
     assert.doesNotMatch(prompt, /ignored\.txt/);
     assert.match(prompt, /File 2:[\s\S]*File path: two\.txt[\s\S]*enabled/);
+});
+
+test("shows commit message helpers in add-file mode after an empty commit", () => {
+    assert.equal(shouldHideCommitMessageHelpers({allowEmptyCommit: true, branchMode: "default"}), true);
+    assert.equal(shouldHideCommitMessageHelpers({allowEmptyCommit: true, branchMode: "add_file"}), false);
 });

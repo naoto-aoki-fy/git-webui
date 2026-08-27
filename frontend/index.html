@@ -748,7 +748,11 @@
         patchCjkIndicator.classList.toggle("hidden", !hasCjk);
     };
     const toggleCommitMessageHelpers = () => {
-        const shouldHide = allowEmptyCommit.checked;
+        const branchMode = document.querySelector("input[name='branch_mode']:checked")?.value || "default";
+        const shouldHide = CommitPrompt.shouldHideCommitMessageHelpers({
+            allowEmptyCommit: allowEmptyCommit.checked,
+            branchMode,
+        });
         if (copyPatchButton) {
             copyPatchButton.classList.toggle("hidden", shouldHide);
         }
