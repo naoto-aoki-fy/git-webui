@@ -17,7 +17,10 @@ class SyncRepositoryTests(unittest.TestCase):
             form["sync_push_option"] = sync_push_option
 
         completed = mock.Mock(returncode=0)
-        with mock.patch.object(app, "run_git_command", new=mock.AsyncMock(return_value=completed)) as run_git:
+        with (
+            mock.patch.object(app, "run_git_command", new=mock.AsyncMock(return_value=completed)) as run_git,
+            mock.patch.object(app, "_clone_isolated_repository", new=mock.AsyncMock()),
+        ):
             result = asyncio.run(process_submission(form, LogSink([])))
 
         self.assertTrue(result["success"])
@@ -26,12 +29,12 @@ class SyncRepositoryTests(unittest.TestCase):
     def test_sync_defaults_to_push_all(self):
         calls = self.run_sync()
 
-        self.assertEqual(calls[1].args[:3], ("push", "--all", "https://github.com/example/destination.git"))
+        self.assertEqual(calls[0].args[:3], ("push", "--all", "https://github.com/example/destination.git"))
 
     def test_sync_can_use_previous_mirror_behavior(self):
         calls = self.run_sync("mirror")
 
-        self.assertEqual(calls[1].args[:3], ("push", "--mirror", "https://github.com/example/destination.git"))
+        self.assertEqual(calls[0].args[:3], ("push", "--mirror", "https://github.com/example/destination.git"))
 
 
 if __name__ == "__main__":

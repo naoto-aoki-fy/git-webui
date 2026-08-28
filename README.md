@@ -13,7 +13,7 @@ This repository currently contains:
 The UI supports these main workflows:
 
 1. **Default mode**
-   - Clone/fetch a repository into a local workspace cache directory.
+   - Seed each operation from a persistent bare mirror cache, then fetch and work in an isolated temporary clone.
    - Optionally checkout/pull a specified branch.
    - Apply patch content with `git apply --3way -v`.
    - Stage (`git add -A`), optionally commit, and optionally push.
@@ -125,7 +125,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - `--port` (server port)
 - `--unix-socket` (AF_UNIX socket path; cannot be combined with `--bind` or `--port`)
 - `--config` (path to TOML config)
-- `--repo-root` (persistent cache/workspace root for repositories)
+- `--repo-root` (persistent bare mirror cache root for repositories)
 - `--keep-temp` (keep temporary workspaces for debugging)
 - `--serve-frontend` / `--no-serve-frontend`
 
@@ -155,5 +155,5 @@ A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main
 
 - No authentication layer is built into the backend; run only in trusted environments.
 - GitHub operations use HTTPS and rely on the configured Git credential helper to choose credentials by repository owner; SSH remotes are rejected.
-- The backend keeps per-repository cached clones under `--repo-root`.
+- The backend keeps immutable per-repository bare mirror caches under `--repo-root`. Every submission uses its own temporary clone and refreshes that clone from the remote, so concurrent operations never share a Git index or working tree.
 - This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.

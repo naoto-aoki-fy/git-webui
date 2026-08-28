@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import tempfile
 import secrets
 import tomllib
@@ -881,7 +882,80 @@ def _repo_workspace_for_url(repository_url: str) -> Path:
     repo_name = repo_name[:-4] if repo_name.endswith(".git") else repo_name
     repo_name = re.sub(r"[^A-Za-z0-9._-]+", "-", repo_name).strip("-") or "repo"
     digest = hashlib.sha256(repository_url.encode("utf-8")).hexdigest()[:10]
-    return REPO_ROOT / f"{repo_name}-{digest}"
+    return REPO_ROOT / f"{repo_name}-{digest}.git"
+
+
+async def _ensure_mirror_cache(
+    repository_url: str,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> Path:
+    """Create an immutable bare mirror used only as a clone seed."""
+    mirror_dir = _repo_workspace_for_url(repository_url)
+    if mirror_dir.exists():
+        bare_result = await run_git_command(
+            "rev-parse", "--is-bare-repository", cwd=mirror_dir, env=env, log=logs
+        )
+        if bare_result.returncode != 0 or bare_result.stdout.strip() != "true":
+            raise RuntimeError(f"Existing repository cache is not a bare mirror: {mirror_dir}")
+        _log_debug(logs, f"Using bare mirror cache at {mirror_dir}.")
+        return mirror_dir
+
+    mirror_dir.parent.mkdir(parents=True, exist_ok=True)
+    candidate = Path(tempfile.mkdtemp(prefix=f".{mirror_dir.name}-", dir=mirror_dir.parent))
+    # git clone requires the destination not to exist.
+    candidate.rmdir()
+    try:
+        if logs is not None:
+            logs.append(_timestamped(f"Creating bare mirror cache for {repository_url}"))
+        clone_result = await run_git_command(
+            "clone", "--mirror", repository_url, str(candidate), env=env, log=logs
+        )
+        if clone_result.returncode != 0:
+            raise RuntimeError("git clone --mirror failed while creating repository cache")
+        try:
+            candidate.rename(mirror_dir)
+        except OSError:
+            # Another process may have won the atomic publication race. Its
+            # completed mirror is equivalent; never mutate either cache.
+            if not mirror_dir.exists():
+                raise
+        _log_debug(logs, f"Bare mirror cache is ready at {mirror_dir}.")
+        return mirror_dir
+    finally:
+        if candidate.exists():
+            shutil.rmtree(candidate)
+
+
+async def _clone_isolated_repository(
+    repository_url: str,
+    destination: Path,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+    *,
+    mirror: bool = False,
+) -> None:
+    """Clone a cache seed and refresh only the operation-local repository."""
+    cache_dir = await _ensure_mirror_cache(repository_url, env, logs)
+    clone_args = ["clone"]
+    if mirror:
+        clone_args.append("--mirror")
+    clone_args.extend([str(cache_dir), str(destination)])
+    clone_result = await run_git_command(*clone_args, env=env, log=logs)
+    if clone_result.returncode != 0:
+        raise RuntimeError("Failed to create isolated repository clone")
+
+    set_url_result = await run_git_command(
+        "remote", "set-url", "origin", repository_url,
+        cwd=destination, env=env, log=logs,
+    )
+    if set_url_result.returncode != 0:
+        raise RuntimeError("Failed to configure isolated repository origin")
+    fetch_result = await run_git_command(
+        "remote", "update", "--prune", cwd=destination, env=env, log=logs
+    )
+    if fetch_result.returncode != 0:
+        raise RuntimeError("Failed to refresh isolated repository clone")
 
 
 @contextmanager
@@ -896,6 +970,7 @@ def _temporary_workspace(logs: Optional[LogSink] = None) -> Path:
             yield workdir
         finally:
             pass
+        return
     with tempfile.TemporaryDirectory(prefix="git-webui-") as tmpdir:
         yield Path(tmpdir)
 
@@ -1323,24 +1398,19 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
 
     try:
         with _temporary_workspace(logs) as workdir:
-            repo_dir = _repo_workspace_for_url(repository_url)
+            repo_dir = workdir / "repository"
             env = os.environ.copy()
             _log_debug(logs, f"Created temporary workspace at {workdir}.")
-            _log_debug(logs, f"Repository directory will be {repo_dir}.")
+            _log_debug(logs, f"Isolated repository directory will be {repo_dir}.")
 
             if branch_mode == "mirror_repository":
                 mirror_dir = workdir / "mirror.git"
-                logs.append(_timestamped(f"Cloning Repository A as a mirror: {repository_url}"))
-                clone_result = await run_git_command(
-                    "clone",
-                    "--mirror",
-                    repository_url,
-                    str(mirror_dir),
-                    env=env,
-                    log=logs,
+                logs.append(
+                    _timestamped(f"Creating an isolated mirror of Repository A: {repository_url}")
                 )
-                if clone_result.returncode != 0:
-                    raise RuntimeError("git clone --mirror failed")
+                await _clone_isolated_repository(
+                    repository_url, mirror_dir, env, logs, mirror=True
+                )
                 push_flag = "--mirror" if sync_push_option == "mirror" else "--all"
                 logs.append(_timestamped(f"Syncing Repository A to Repository B with git push {push_flag}: {mirror_repository_url}"))
                 push_result = await run_git_command(
@@ -1357,67 +1427,11 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 success = True
                 return {"form_values": form_values, "success": success}
 
-            repo_prepared = False
             default_branch = ""
-            if repo_dir.exists():
-                if not (repo_dir / ".git").exists():
-                    raise RuntimeError(f"Existing repository path is not a git repo: {repo_dir}")
-                logs.append(_timestamped(f"Using existing repository at {repo_dir}"))
-                _log_debug(logs, "Fetching latest changes from all remotes.")
-                fetch_result = await run_git_command(
-                    "fetch",
-                    "--prune",
-                    "--all",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if fetch_result.returncode != 0:
-                    raise RuntimeError("git fetch failed")
-                _log_debug(logs, "git fetch completed.")
-                if branch_mode == "orphan" and not await _remote_has_branches(repo_dir, env, logs):
-                    _log_debug(logs, "Origin has no branches; skipping default branch resolution for orphan creation.")
-                    _log_debug(logs, "Cleaning cached repository before creating orphan branch.")
-                    reset_result = await run_git_command(
-                        "reset",
-                        "--hard",
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if reset_result.returncode != 0:
-                        raise RuntimeError("git reset --hard failed before orphan creation")
-                    clean_result = await run_git_command(
-                        "clean",
-                        "-fd",
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if clean_result.returncode != 0:
-                        raise RuntimeError("git clean -fd failed before orphan creation")
-                else:
-                    default_branch = await _resolve_default_branch(repo_dir, env, logs)
-                    if branch_mode in {"default", "add_file"} and not branch:
-                        branch = default_branch
-                    target_branch = branch if branch_mode not in {"from_commit", "orphan"} else None
-                    _log_debug(logs, "Resetting cached repository state to match remote default branch.")
-                    await _reset_cached_repo_state(repo_dir, env, logs, default_branch, target_branch)
-                    repo_prepared = True
-            else:
-                logs.append(_timestamped(f"Cloning repository {repository_url}"))
-                _log_debug(logs, "Starting git clone.")
-                repo_dir.parent.mkdir(parents=True, exist_ok=True)
-                clone_result = await run_git_command(
-                    "clone",
-                    repository_url,
-                    str(repo_dir),
-                    env=env,
-                    log=logs,
-                )
-                if clone_result.returncode != 0:
-                    raise RuntimeError("git clone failed")
-                _log_debug(logs, "git clone completed.")
+            logs.append(_timestamped(f"Creating isolated repository clone for {repository_url}"))
+            await _clone_isolated_repository(repository_url, repo_dir, env, logs)
+            if branch_mode == "orphan" and not await _remote_has_branches(repo_dir, env, logs):
+                _log_debug(logs, "Origin has no branches; skipping default branch resolution for orphan creation.")
 
             if branch_mode == "merge_branches":
                 _log_debug(logs, "Merge mode selected; unsetting local git user.name/user.email.")
@@ -1601,7 +1615,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped("Branch merge completed, pushed, and source branch deleted."))
                 success = True
                 return {"form_values": form_values, "success": success}
-            elif branch and not repo_prepared:
+            elif branch:
                 _log_debug(logs, f"Checking out branch '{branch}'.")
                 checkout_result = await run_git_command(
                     "checkout",
@@ -1637,7 +1651,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     )
                     if pull_result.returncode != 0:
                         raise RuntimeError("git pull failed")
-            elif not repo_prepared:
+            else:
                 _log_debug(logs, "No branch specified; using default branch.")
                 await run_git_command(
                     "status",

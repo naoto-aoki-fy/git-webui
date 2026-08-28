@@ -67,12 +67,14 @@ class OrphanEmptyRepoTests(unittest.TestCase):
             ):
                 cached_repo = _repo_workspace_for_url(repository_url)
                 subprocess.run(
-                    ["git", "clone", repository_url, str(cached_repo)],
+                    ["git", "clone", "--mirror", repository_url, str(cached_repo)],
                     check=True,
                     stdout=subprocess.PIPE,
                 )
                 subprocess.run(
-                    ["git", "branch", "stale-local"], cwd=cached_repo, check=True
+                    ["git", "update-ref", "refs/heads/stale-local", "refs/heads/main"],
+                    cwd=cached_repo,
+                    check=True,
                 )
                 logs = LogSink([])
                 result = asyncio.run(
@@ -90,14 +92,24 @@ class OrphanEmptyRepoTests(unittest.TestCase):
                 )
 
             self.assertTrue(result["success"], "\n".join(logs.entries))
-            branches = subprocess.run(
+            cached_branches = subprocess.run(
                 ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
                 cwd=cached_repo,
                 check=True,
                 stdout=subprocess.PIPE,
                 text=True,
             ).stdout.splitlines()
-            self.assertEqual(["fresh-orphan"], branches)
+            self.assertEqual(["feature", "main", "stale-local"], cached_branches)
+            self.assertEqual(
+                "true",
+                subprocess.run(
+                    ["git", "rev-parse", "--is-bare-repository"],
+                    cwd=cached_repo,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ).stdout.strip(),
+            )
             self.assertIn(
                 "Deleting all local branches before orphan branch creation.",
                 "\n".join(logs.entries),
@@ -126,7 +138,7 @@ class OrphanEmptyRepoTests(unittest.TestCase):
             ):
                 cached_repo = _repo_workspace_for_url(repository_url)
                 subprocess.run(
-                    ["git", "clone", repository_url, str(cached_repo)],
+                    ["git", "clone", "--mirror", repository_url, str(cached_repo)],
                     check=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
