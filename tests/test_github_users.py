@@ -17,8 +17,9 @@ from backend.app import (
     _repository_owner,
     _write_github_cache,
     create_app,
-    refresh_github_listing_on_startup,
+    server_started,
 )
+from backend.git_webui.web.keys import GITHUB_REFRESH_TASK_KEY
 
 
 class GithubUsersTests(unittest.TestCase):
@@ -144,15 +145,17 @@ class GithubUsersTests(unittest.TestCase):
         accounts.assert_awaited_once()
         self.assertEqual(listing["github_users"][0]["login"], "new-user")
 
-    def test_startup_forces_refresh_without_starting_background_task(self) -> None:
+    def test_server_started_forces_refresh_in_background(self) -> None:
         async def exercise() -> None:
             app = create_app(serve_frontend=False)
             with mock.patch(
                 "backend.app._github_listing", mock.AsyncMock(return_value={})
             ) as listing:
-                await refresh_github_listing_on_startup(app)
+                with mock.patch("builtins.print") as output:
+                    server_started(app, "Listening")
+                    output.assert_called_once_with("Listening")
+                await app[GITHUB_REFRESH_TASK_KEY]["task"]
                 listing.assert_awaited_once_with(force_refresh=True)
-                self.assertNotIn("github_refresh_task", app)
 
         asyncio.run(exercise())
 

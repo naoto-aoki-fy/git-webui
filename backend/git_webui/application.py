@@ -21,7 +21,7 @@ import traceback
 from aiohttp import web
 
 from .settings import Settings
-from .web.keys import FORCED_PAYLOAD_KEY, FRONTEND_ROOT_KEY, SSE_CLIENTS_KEY, SUBMISSIONS_KEY
+from .web.keys import FORCED_PAYLOAD_KEY, FRONTEND_ROOT_KEY, GITHUB_REFRESH_TASK_KEY, SSE_CLIENTS_KEY, SUBMISSIONS_KEY
 
 SSE_PATH = "/events"
 
@@ -2027,8 +2027,8 @@ async def close_sse_clients(app: web.Application) -> None:
     app[SSE_CLIENTS_KEY].clear()
 
 
-async def refresh_github_listing_on_startup(_: web.Application) -> None:
-    """Populate GitHub data when the backend starts."""
+async def refresh_github_listing_after_server_start(_: web.Application) -> None:
+    """Populate GitHub data after the backend has begun accepting requests."""
     try:
         await _github_listing(force_refresh=True)
     except RuntimeError:
@@ -2037,11 +2037,28 @@ async def refresh_github_listing_on_startup(_: web.Application) -> None:
         pass
 
 
+def server_started(app: web.Application, message: str) -> None:
+    """Handle aiohttp's post-listen notification and start GitHub discovery."""
+    print(message)
+    app[GITHUB_REFRESH_TASK_KEY]["task"] = asyncio.create_task(
+        refresh_github_listing_after_server_start(app)
+    )
+
+
+async def stop_github_listing_refresh(app: web.Application) -> None:
+    """Cancel an outstanding discovery task during graceful shutdown."""
+    task = app[GITHUB_REFRESH_TASK_KEY].get("task")
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
 def create_web_app(serve_frontend: bool = True) -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app[SSE_CLIENTS_KEY] = {}
     app[SUBMISSIONS_KEY] = {}
-    app.on_startup.append(refresh_github_listing_on_startup)
+    app[GITHUB_REFRESH_TASK_KEY] = {}
+    app.on_shutdown.append(stop_github_listing_refresh)
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
     app.router.add_route("POST", "/submit", submit_default_handler)

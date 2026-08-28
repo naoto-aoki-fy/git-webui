@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .application import DEFAULT_BIND, DEFAULT_CONFIG_PATH, DEFAULT_PORT, DEFAULT_REPO_ROOT, MAX_LINE_SIZE, _parse_port_argument, _resolve_server_listen_config
+from .application import DEFAULT_BIND, DEFAULT_CONFIG_PATH, DEFAULT_PORT, DEFAULT_REPO_ROOT, MAX_LINE_SIZE, _parse_port_argument, _resolve_server_listen_config, server_started
 from .bootstrap import create_app
 from .settings import Settings
 
@@ -39,4 +39,12 @@ def main() -> None:
         )
     except RuntimeError as exc:
         raise SystemExit(str(exc)) from exc
-    web.run_app(create_app(settings, serve_frontend=args.serve_frontend), host=listen.host, port=listen.port, path=listen.path, max_line_size=MAX_LINE_SIZE)
+    app = create_app(settings, serve_frontend=args.serve_frontend)
+    web.run_app(
+        app,
+        host=listen.host,
+        port=listen.port,
+        path=listen.path,
+        max_line_size=MAX_LINE_SIZE,
+        print=lambda message: server_started(app, message),
+    )
