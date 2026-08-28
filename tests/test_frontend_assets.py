@@ -25,6 +25,17 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status, 404)
 
+    async def test_commit_message_action_defaults_to_generate(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertNotIn('id="paste_commit_message"', html)
+        self.assertIn(
+            'name="commit_message_action" value="generate" checked',
+            html,
+        )
+        self.assertIn('commitMessageAction:', html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -468,6 +468,24 @@
                 <p class="subtle">Use <code>{message}</code> where the URL-encoded prompt should be inserted. These prompt generation settings are saved in your browser.</p>
             </div>
             <div>
+                <label>Commit message action</label>
+                <div class="toggle-group" role="radiogroup" aria-label="Commit message action">
+                    <label>
+                        <input type="radio" name="commit_message_action" value="prompt">
+                        Prompt
+                    </label>
+                    <label>
+                        <input type="radio" name="commit_message_action" value="generate" checked>
+                        Generate suggestions
+                    </label>
+                    <label>
+                        <input type="radio" name="commit_message_action" value="service">
+                        Generate with ChatGPT
+                    </label>
+                </div>
+                <p class="subtle">Choose the action displayed beside the Commit Message field.</p>
+            </div>
+            <div>
                 <label for="llm_provider">Suggestion provider</label>
                 <select id="llm_provider">
                     <option value="openai">OpenAI-compatible</option>
@@ -528,17 +546,14 @@
             <div class="field-header">
                 <label for="commit_message">Commit Message</label>
                 <div class="field-header-actions">
-                    <button type="button" class="button secondary" id="paste_commit_message" data-paste-target="commit_message">
-                        Paste from clipboard
-                    </button>
                     <button type="button" class="button secondary" id="copy_patch">
-                        Prompt for generating a commit message
+                        Prompt
                     </button>
                     <button type="button" class="button secondary" id="generate_commit_candidates">
-                        Generate suggestions
+                        Generate
                     </button>
                     <a class="button secondary" id="open_chatgpt" href="#" target="_blank" rel="noopener noreferrer">
-                        Generate with ChatGPT
+                        Generate
                     </a>
                 </div>
             </div>
@@ -686,12 +701,12 @@
     const openMirrorRepositoryButton = document.getElementById("open_mirror_repository");
     const swapMirrorRepositoriesButton = document.getElementById("swap_mirror_repositories");
     const refreshGithubListsButton = document.getElementById("refresh_github_lists");
-    const pasteCommitMessageButton = document.getElementById("paste_commit_message");
     const pastePatchButton = document.getElementById("paste_patch");
     const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
     const openChatGPTButton = document.getElementById("open_chatgpt");
     const generateServiceNameField = document.getElementById("generate_service_name");
     const generateUrlTemplateField = document.getElementById("generate_url_template");
+    const commitMessageActionInputs = document.querySelectorAll("input[name='commit_message_action']");
     const openAIEndpointField = document.getElementById("openai_endpoint_url");
     const openAITokenField = document.getElementById("openai_authorization_token");
     const openAIModelField = document.getElementById("openai_model");
@@ -723,7 +738,7 @@
         navigator.clipboard &&
         typeof navigator.clipboard.readText === "function";
     if (!isClipboardPasteAvailable) {
-        [pasteCommitMessageButton, pastePatchButton].forEach((button) => {
+        [pastePatchButton].forEach((button) => {
             if (button) {
                 button.classList.add("hidden");
             }
@@ -754,15 +769,10 @@
             allowEmptyCommit: allowEmptyCommit.checked,
             branchMode,
         });
-        if (copyPatchButton) {
-            copyPatchButton.classList.toggle("hidden", shouldHide);
-        }
-        if (openChatGPTButton) {
-            openChatGPTButton.classList.toggle("hidden", shouldHide);
-        }
-        if (generateCandidatesButton) {
-            generateCandidatesButton.classList.toggle("hidden", shouldHide);
-        }
+        const selectedAction = document.querySelector("input[name='commit_message_action']:checked")?.value || "generate";
+        copyPatchButton?.classList.toggle("hidden", shouldHide || selectedAction !== "prompt");
+        openChatGPTButton?.classList.toggle("hidden", shouldHide || selectedAction !== "service");
+        generateCandidatesButton?.classList.toggle("hidden", shouldHide || selectedAction !== "generate");
     };
     const clearCopyPatchIndicatorIfPatchChanged = () => {
         if (!copyPatchButton || copyPatchButton.dataset.copied !== "true") {
@@ -797,7 +807,6 @@
     const GENERATE_SETTINGS_STORAGE_KEY = "git-webui.generateSettings";
     const OPENAI_SETTINGS_STORAGE_KEY = "git-webui.openAISettings";
     const LLM_SETTINGS_STORAGE_KEY = "git-webui.llmSettings.v2";
-    const DEFAULT_GENERATE_SERVICE_NAME = "ChatGPT";
     const DEFAULT_GENERATE_URL_TEMPLATE = "https://chatgpt.com/#?q={message}";
     const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
     const MAX_STORED_VALUES = 10;
@@ -1540,9 +1549,6 @@
             if (pastePatchButton) pastePatchButton.disabled = true;
             if (copyPatchButton) copyPatchButton.disabled = false;
         }
-        if (pasteCommitMessageButton) {
-            pasteCommitMessageButton.disabled = commitMessageField.hasAttribute("disabled");
-        }
         updateChatGPTLink();
     };
 
@@ -2114,8 +2120,8 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             if (candidateGenerationController === controller) {
                 candidateGenerationController = null;
                 clearCandidateProgress();
-                generateCandidatesButton.textContent = "Generate suggestions";
-                generateCandidatesButton.setAttribute("aria-label", "Generate suggestions");
+                generateCandidatesButton.textContent = "Generate";
+                generateCandidatesButton.setAttribute("aria-label", "Generate");
             }
         }
     };
@@ -2187,9 +2193,8 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             return;
         }
         const prompt = buildPatchPrompt();
-        const serviceName = generateServiceNameField.value.trim() || DEFAULT_GENERATE_SERVICE_NAME;
         const urlTemplate = generateUrlTemplateField.value.trim() || DEFAULT_GENERATE_URL_TEMPLATE;
-        openChatGPTButton.textContent = "Generate with " + serviceName;
+        openChatGPTButton.textContent = "Generate";
         openChatGPTButton.href = urlTemplate.replace(/\{message\}/g, encodeURIComponent(prompt));
     };
 
@@ -2202,9 +2207,17 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             if (settings && typeof settings.urlTemplate === "string") {
                 generateUrlTemplateField.value = settings.urlTemplate;
             }
+            const selectedAction = settings?.commitMessageAction;
+            if (["prompt", "generate", "service"].includes(selectedAction)) {
+                const actionInput = document.querySelector(
+                    `input[name='commit_message_action'][value='${selectedAction}']`
+                );
+                if (actionInput) actionInput.checked = true;
+            }
         } catch (error) {
             console.warn("Unable to read prompt generation settings", error);
         }
+        toggleCommitMessageHelpers();
     };
 
     const saveGenerateSettings = () => {
@@ -2213,9 +2226,12 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             JSON.stringify({
                 serviceName: generateServiceNameField.value,
                 urlTemplate: generateUrlTemplateField.value,
+                commitMessageAction:
+                    document.querySelector("input[name='commit_message_action']:checked")?.value || "generate",
             })
         );
         updateChatGPTLink();
+        toggleCommitMessageHelpers();
     };
 
     const bindPasteButton = (button) => {
@@ -2226,7 +2242,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         button.addEventListener("click", () => pasteFromClipboard(targetId));
     };
 
-    bindPasteButton(pasteCommitMessageButton);
     bindPasteButton(pastePatchButton);
     if (copyPatchButton) {
         copyPatchButton.addEventListener("click", copyPatchToClipboard);
@@ -2354,6 +2369,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     }
     generateServiceNameField.addEventListener("input", saveGenerateSettings);
     generateUrlTemplateField.addEventListener("input", saveGenerateSettings);
+    commitMessageActionInputs.forEach((input) => input.addEventListener("change", saveGenerateSettings));
     if (resultCloseButton) {
         resultCloseButton.addEventListener("click", hideResultModal);
     }
