@@ -1446,6 +1446,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
         _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
+    if branch_mode in {"default", "add_file"} and not branch:
+        _log_debug(logs, "Branch name missing.")
+        logs.append(_timestamped("Branch is required."))
+        return {"form_values": form_values, "success": False}
     if branch_mode == "revert_to_commit" and not branch:
         _log_debug(logs, "Branch name missing for revert mode.")
         logs.append(_timestamped("Branch is required for revert mode."))

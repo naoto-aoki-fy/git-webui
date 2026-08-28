@@ -36,6 +36,15 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn('commitMessageAction:', html)
 
+    async def test_branch_is_required(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('<label for="branch" id="branch_label">Branch</label>', html)
+        self.assertIn('id="branch" name="branch" list="branch_history" required', html)
+        self.assertNotIn("optional: use the current branch", html)
+        self.assertIn('branchField.setAttribute("required", "");', html)
+
 
 if __name__ == "__main__":
     unittest.main()

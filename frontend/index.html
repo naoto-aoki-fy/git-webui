@@ -431,8 +431,8 @@
             <p class="subtle" id="mode_description">Apply a patch to the selected branch and create a commit.</p>
         </div>
         <div id="branch_group">
-            <label for="branch" id="branch_label">Branch (optional: use the current branch)</label>
-            <input type="text" id="branch" name="branch" list="branch_history">
+            <label for="branch" id="branch_label">Branch</label>
+            <input type="text" id="branch" name="branch" list="branch_history" required>
             <datalist id="branch_history"></datalist>
         </div>
         <div id="sync_method_group" class="hidden">
@@ -1493,16 +1493,12 @@
         branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode);
         if (!isConfigMode && !isMirrorMode) {
             branchField.removeAttribute("disabled");
-            if (createsBranch || needsExistingBranch) {
-                branchField.setAttribute("required", "");
-            } else {
-                branchField.removeAttribute("required");
-            }
+            branchField.setAttribute("required", "");
             branchField.setAttribute("placeholder", selectedMode === "merge_branches" ? "Branch A" : "");
             if (branchLabel) {
                 branchLabel.textContent = createsBranch
                     ? "New Branch Name"
-                    : "Branch (optional: use the current branch)";
+                    : "Branch";
             }
         } else {
             branchField.setAttribute("disabled", "");
