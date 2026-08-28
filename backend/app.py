@@ -396,6 +396,20 @@ class CommandResult:
     stderr: str
 
 
+class GitCommandError(RuntimeError):
+    """Raised when a Git command that must succeed returns a nonzero status."""
+
+    def __init__(self, args: tuple[str, ...], result: CommandResult) -> None:
+        self.command_args = args
+        self.result = result
+        command = shlex.join(("git", *args))
+        detail = result.stderr.strip() or result.stdout.strip()
+        message = f"{command} failed with exit code {result.returncode}"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
+
+
 @dataclass
 class LogSink:
     entries: List[str]
@@ -468,6 +482,36 @@ async def run_git_command(
         idx += 1
 
     return await run_command("git", *GIT_COMMON_OPTIONS, *git_args, cwd=cwd, env=env, log=log)
+
+
+async def run_git_checked(
+    *cmd: str,
+    cwd: Optional[Path] = None,
+    env: Optional[Dict[str, str]] = None,
+    log: Optional[LogSink] = None,
+) -> CommandResult:
+    """Run a Git command and raise a diagnostic error if it fails."""
+    result = await run_git_command(*cmd, cwd=cwd, env=env, log=log)
+    if result.returncode != 0:
+        raise GitCommandError(cmd, result)
+    return result
+
+
+async def _clean_orphan_worktree(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> None:
+    """Remove tracked and untracked files and verify an orphan tree is empty."""
+    await run_git_checked(
+        "rm", "-rf", "--ignore-unmatch", ".", cwd=repo_dir, env=env, log=logs
+    )
+    await run_git_checked("clean", "-fd", cwd=repo_dir, env=env, log=logs)
+    status = await run_git_checked(
+        "status", "--porcelain", "--untracked-files=all", cwd=repo_dir, env=env, log=logs
+    )
+    if status.stdout.strip():
+        raise RuntimeError("Orphan worktree is not empty after cleanup")
 
 
 def _timestamped(message: str) -> str:
@@ -1554,14 +1598,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 if create_branch_result.returncode != 0:
                     raise RuntimeError("Failed to create orphan branch")
                 _log_debug(logs, "Removing working tree files for orphan branch.")
-                await run_git_command(
-                    "rm",
-                    "-rf",
-                    ".",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
+                await _clean_orphan_worktree(repo_dir, env, logs)
             elif branch_mode == "merge_branches":
                 logs.append(_timestamped(f"Merging branch {new_branch} into {branch}."))
                 if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{branch}", env, logs):
@@ -1698,7 +1735,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 _log_debug(logs, "Patch skipped because content is empty.")
 
             _log_debug(logs, "Staging changes with git add -A.")
-            await run_git_command(
+            await run_git_checked(
                 "add",
                 "-A",
                 cwd=repo_dir,
