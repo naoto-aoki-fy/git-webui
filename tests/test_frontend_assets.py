@@ -45,6 +45,19 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("optional: use the current branch", html)
         self.assertIn('branchField.setAttribute("required", "");', html)
 
+    async def test_double_clicking_candidate_uses_its_commit_message(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn(
+            'label.addEventListener("dblclick", () => useCommitCandidate(candidate.id));',
+            html,
+        )
+        self.assertIn(
+            'useCandidateButton.addEventListener("click", () => useCommitCandidate());',
+            html,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

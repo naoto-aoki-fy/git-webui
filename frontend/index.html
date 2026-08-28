@@ -2011,6 +2011,19 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         candidateContent.hidden = !expanded;
     };
 
+    const useCommitCandidate = (candidateId) => {
+        const selected = candidateId === undefined
+            ? document.querySelector("input[name='commit_candidate']:checked")
+            : null;
+        const id = candidateId === undefined ? Number(selected?.value) : candidateId;
+        const candidate = generatedCandidates.find((item) => item.id === id);
+        if (!candidate) return;
+        commitMessageField.value = candidate.commit_message;
+        commitMessageField.dispatchEvent(new Event("input", {bubbles: true}));
+        setCandidatePanelExpanded(false);
+        commitMessageField.focus();
+    };
+
     const renderCandidates = (result) => {
         generatedCandidates = result.candidates;
         candidateList.replaceChildren();
@@ -2032,6 +2045,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             meta.textContent = "Adoption level: " + candidate.recommended_adoption_level + "/5 — " + candidate.reason;
             content.append(heading, message, meta);
             label.append(radio, content);
+            label.addEventListener("dblclick", () => useCommitCandidate(candidate.id));
             candidateList.appendChild(label);
         });
         candidateStatus.textContent = "Select a suggestion, then apply it to the commit message.";
@@ -2251,15 +2265,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         });
     }
     if (useCandidateButton) {
-        useCandidateButton.addEventListener("click", () => {
-            const selected = document.querySelector("input[name='commit_candidate']:checked");
-            const candidate = generatedCandidates.find((item) => selected && item.id === Number(selected.value));
-            if (!candidate) return;
-            commitMessageField.value = candidate.commit_message;
-            commitMessageField.dispatchEvent(new Event("input", {bubbles: true}));
-            setCandidatePanelExpanded(false);
-            commitMessageField.focus();
-        });
+        useCandidateButton.addEventListener("click", () => useCommitCandidate());
     }
     [openAIEndpointField, openAITokenField, openAIModelField, openAICandidateOutputFormatField,
         openAIAdditionalRequestParametersField, codexModelField].forEach((field) => {
