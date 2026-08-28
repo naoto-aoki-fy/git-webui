@@ -1328,6 +1328,34 @@ async def _push_to_remotes(
             raise RuntimeError(f"git push to {label} failed")
 
 
+async def _verify_reset_commit_on_branch(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: LogSink,
+    commit_id: str,
+    branch: str,
+) -> None:
+    """Ensure a hard-reset target is already reachable from the remote branch."""
+    remote_branch = f"origin/{branch}"
+    _log_debug(
+        logs,
+        f"Checking whether commit '{commit_id}' is contained in branch '{remote_branch}'.",
+    )
+    ancestor_result = await run_git_command(
+        "merge-base",
+        "--is-ancestor",
+        commit_id,
+        remote_branch,
+        cwd=repo_dir,
+        env=env,
+        log=logs,
+    )
+    if ancestor_result.returncode != 0:
+        raise RuntimeError(
+            f"Commit '{commit_id}' is not contained in branch '{branch}'; hard reset aborted"
+        )
+
+
 async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
     _log_debug(logs, "Received submission payload.")
     repository_owner = form.get("repository_owner", "").strip()
@@ -1590,6 +1618,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped(f"Resetting branch {branch} to commit {base_commit}."))
                 if not await _git_ref_exists(repo_dir, f"refs/remotes/origin/{branch}", env, logs):
                     raise RuntimeError(f"Branch '{branch}' does not exist on origin for revert mode")
+                await _verify_reset_commit_on_branch(
+                    repo_dir,
+                    env,
+                    logs,
+                    base_commit,
+                    branch,
+                )
                 _log_debug(logs, f"Checking out existing branch '{branch}' from origin for revert mode.")
                 checkout_result = await run_git_command(
                     "switch",
