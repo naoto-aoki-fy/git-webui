@@ -392,11 +392,6 @@
                 </div>
             </div>
         </div>
-        <div id="branch_group">
-            <label for="branch">Branch (optional: use the current branch)</label>
-            <input type="text" id="branch" name="branch" list="branch_history">
-            <datalist id="branch_history"></datalist>
-        </div>
         <div>
             <label>Mode</label>
             <div class="toggle-group" role="radiogroup" aria-label="Mode">
@@ -434,6 +429,11 @@
                 </label>
             </div>
             <p class="subtle" id="mode_description">Apply a patch to the selected branch and create a commit.</p>
+        </div>
+        <div id="branch_group">
+            <label for="branch" id="branch_label">Branch (optional: use the current branch)</label>
+            <input type="text" id="branch" name="branch" list="branch_history">
+            <datalist id="branch_history"></datalist>
         </div>
         <div id="sync_method_group" class="hidden">
             <label>Sync method</label>
@@ -667,6 +667,7 @@
     const repositoryField = document.getElementById("repository_name");
     const repositoryLabel = document.getElementById("repository_label");
     const branchField = document.getElementById("branch");
+    const branchLabel = document.getElementById("branch_label");
     const newBranchGroup = document.getElementById("new_branch_group");
     const newBranchField = document.getElementById("new_branch");
     const newBranchLabel = document.getElementById("new_branch_label");
@@ -970,6 +971,10 @@
         if (newBranchField) {
             newBranchField.value = "";
         }
+        const branchMode = getSelectedBranchMode();
+        if (branchField && (branchMode === "from_commit" || branchMode === "orphan")) {
+            branchField.value = "";
+        }
         scheduleDraftSave();
     };
 
@@ -1258,12 +1263,13 @@
         }
         applyDraftValue(repositoryOwnerField, draft.repository_owner);
         applyDraftValue(repositoryField, draft.repository_name);
-        applyDraftValue(branchField, draft.branch);
         if (typeof draft.branch_mode === "string") {
             branchModeInputs.forEach((input) => {
                 input.checked = input.value === draft.branch_mode;
             });
         }
+        const draftCreatesBranch = draft.branch_mode === "from_commit" || draft.branch_mode === "orphan";
+        applyDraftValue(branchField, draft.branch ?? (draftCreatesBranch ? draft.new_branch : undefined));
         applyDraftValue(newBranchField, draft.new_branch);
         applyDraftValue(commitIdField, draft.base_commit);
         applyDraftValue(gitUserField, draft.git_user);
@@ -1416,7 +1422,8 @@
         backendGroup.classList.toggle("hidden", !isConfigMode);
         submitButton.classList.toggle("hidden", isConfigMode);
         const needsCommit = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        const needsNewBranch = selectedMode === "from_commit" || selectedMode === "orphan" || selectedMode === "merge_branches";
+        const createsBranch = selectedMode === "from_commit" || selectedMode === "orphan";
+        const needsNewBranch = selectedMode === "merge_branches";
         const needsExistingBranch = selectedMode === "revert_to_commit" || selectedMode === "merge_branches";
         if (mirrorRepositoryGroup) {
             mirrorRepositoryGroup.classList.toggle("hidden", !isMirrorMode);
@@ -1474,19 +1481,19 @@
             }
         }
         const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode || !(selectedMode === "default" || isAddFileMode || needsExistingBranch));
-        if (!isMirrorMode && (selectedMode === "default" || isAddFileMode || needsExistingBranch)) {
+        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode);
+        if (!isConfigMode && !isMirrorMode) {
             branchField.removeAttribute("disabled");
-            if (needsExistingBranch) {
+            if (createsBranch || needsExistingBranch) {
                 branchField.setAttribute("required", "");
-                if (selectedMode === "merge_branches") {
-                    branchField.setAttribute("placeholder", "Branch A");
-                } else {
-                    branchField.setAttribute("placeholder", "");
-                }
             } else {
                 branchField.removeAttribute("required");
-                branchField.setAttribute("placeholder", "");
+            }
+            branchField.setAttribute("placeholder", selectedMode === "merge_branches" ? "Branch A" : "");
+            if (branchLabel) {
+                branchLabel.textContent = createsBranch
+                    ? "New Branch Name"
+                    : "Branch (optional: use the current branch)";
             }
         } else {
             branchField.setAttribute("disabled", "");
@@ -1862,6 +1869,10 @@
         const payload = Object.fromEntries(new FormData(form).entries());
         const branchMode = payload.branch_mode || "default";
         delete payload.branch_mode;
+        if (branchMode === "from_commit" || branchMode === "orphan") {
+            payload.new_branch = payload.branch;
+            delete payload.branch;
+        }
         if (branchMode === "add_file") payload.files = JSON.stringify(collectAddFiles());
         clearLogs();
         persistStoredSelections();
@@ -2294,7 +2305,11 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             });
         }
         if (queryParams.has("new_branch")) {
-            newBranchField.value = queryParams.get("new_branch") || "";
+            const selectedMode = getSelectedBranchMode();
+            const field = selectedMode === "from_commit" || selectedMode === "orphan"
+                ? branchField
+                : newBranchField;
+            field.value = queryParams.get("new_branch") || "";
         }
         if (queryParams.has("base_commit")) {
             commitIdField.value = queryParams.get("base_commit") || "";
