@@ -1290,6 +1290,16 @@ async def _push_to_remotes(
     if additional:
         owner, name = additional
         destinations.append((f"{owner}/{name}", _github_repository_url(owner, name)))
+
+    if len(destinations) > 1:
+        for label, remote in destinations:
+            _log_debug(logs, f"Dry-running push to {label}.")
+            result = await run_git_command(
+                "push", "--dry-run", remote, *arguments, cwd=repo_dir, env=env, log=logs
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"git push --dry-run to {label} failed")
+
     for label, remote in destinations:
         _log_debug(logs, f"Pushing to {label}.")
         result = await run_git_command("push", remote, *arguments, cwd=repo_dir, env=env, log=logs)

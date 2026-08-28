@@ -24,7 +24,7 @@ class MultipleRepositoryPushTests(unittest.TestCase):
         ):
             self.assertEqual(_additional_repository("source-widget"), ("target-user", "widget"))
 
-    def test_push_is_repeated_to_derived_repository(self):
+    def test_pushes_are_dry_run_before_pushing_to_both_repositories(self):
         command = mock.AsyncMock(return_value=CommandResult(0, "", ""))
         with mock.patch.object(
             app, "APP_CONFIG", {"repository_prefix_destinations": [["source-", "target-user"]]}
@@ -33,12 +33,58 @@ class MultipleRepositoryPushTests(unittest.TestCase):
                 _push_to_remotes(Path("/repo"), {}, LogSink([]), "source-widget", "HEAD:main")
             )
 
-        self.assertEqual(command.await_count, 2)
-        self.assertEqual(command.await_args_list[0].args, ("push", "origin", "HEAD:main"))
         self.assertEqual(
-            command.await_args_list[1].args,
-            ("push", "https://github.com/target-user/widget.git", "HEAD:main"),
+            [call.args for call in command.await_args_list],
+            [
+                ("push", "--dry-run", "origin", "HEAD:main"),
+                (
+                    "push",
+                    "--dry-run",
+                    "https://github.com/target-user/widget.git",
+                    "HEAD:main",
+                ),
+                ("push", "origin", "HEAD:main"),
+                ("push", "https://github.com/target-user/widget.git", "HEAD:main"),
+            ],
         )
+
+    def test_dry_run_failure_prevents_all_real_pushes(self):
+        command = mock.AsyncMock(
+            side_effect=[CommandResult(0, "", ""), CommandResult(1, "", "rejected")]
+        )
+        with mock.patch.object(
+            app, "APP_CONFIG", {"repository_prefix_destinations": [["source-", "target-user"]]}
+        ), mock.patch.object(app, "run_git_command", command):
+            with self.assertRaisesRegex(
+                RuntimeError, "git push --dry-run to target-user/widget failed"
+            ):
+                asyncio.run(
+                    _push_to_remotes(
+                        Path("/repo"), {}, LogSink([]), "source-widget", "HEAD:main"
+                    )
+                )
+
+        self.assertEqual(
+            [call.args for call in command.await_args_list],
+            [
+                ("push", "--dry-run", "origin", "HEAD:main"),
+                (
+                    "push",
+                    "--dry-run",
+                    "https://github.com/target-user/widget.git",
+                    "HEAD:main",
+                ),
+            ],
+        )
+
+    def test_single_destination_pushes_without_a_dry_run(self):
+        command = mock.AsyncMock(return_value=CommandResult(0, "", ""))
+        with mock.patch.object(
+            app, "APP_CONFIG", {"repository_prefix_destinations": []}
+        ), mock.patch.object(app, "run_git_command", command):
+            asyncio.run(_push_to_remotes(Path("/repo"), {}, LogSink([]), "widget", "HEAD:main"))
+
+        self.assertEqual(command.await_args.args, ("push", "origin", "HEAD:main"))
 
 
 if __name__ == "__main__":
