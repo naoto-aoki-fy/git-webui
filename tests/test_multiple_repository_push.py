@@ -24,7 +24,7 @@ class MultipleRepositoryPushTests(unittest.TestCase):
         ):
             self.assertEqual(_additional_repository("source-widget"), ("target-user", "widget"))
 
-    def test_pushes_are_dry_run_before_pushing_to_both_repositories(self):
+    def test_additional_push_is_dry_run_before_pushing_to_both_repositories(self):
         command = mock.AsyncMock(return_value=CommandResult(0, "", ""))
         with mock.patch.object(
             app, "APP_CONFIG", {"repository_prefix_destinations": [["source-", "target-user"]]}
@@ -36,7 +36,6 @@ class MultipleRepositoryPushTests(unittest.TestCase):
         self.assertEqual(
             [call.args for call in command.await_args_list],
             [
-                ("push", "--dry-run", "origin", "HEAD:main"),
                 (
                     "push",
                     "--dry-run",
@@ -49,9 +48,7 @@ class MultipleRepositoryPushTests(unittest.TestCase):
         )
 
     def test_dry_run_failure_prevents_all_real_pushes(self):
-        command = mock.AsyncMock(
-            side_effect=[CommandResult(0, "", ""), CommandResult(1, "", "rejected")]
-        )
+        command = mock.AsyncMock(return_value=CommandResult(1, "", "rejected"))
         with mock.patch.object(
             app, "APP_CONFIG", {"repository_prefix_destinations": [["source-", "target-user"]]}
         ), mock.patch.object(app, "run_git_command", command):
@@ -67,7 +64,6 @@ class MultipleRepositoryPushTests(unittest.TestCase):
         self.assertEqual(
             [call.args for call in command.await_args_list],
             [
-                ("push", "--dry-run", "origin", "HEAD:main"),
                 (
                     "push",
                     "--dry-run",

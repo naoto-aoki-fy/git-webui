@@ -1313,7 +1313,7 @@ async def _push_to_remotes(
         destinations.append((f"{owner}/{name}", _github_repository_url(owner, name)))
 
     if len(destinations) > 1:
-        for label, remote in destinations:
+        for label, remote in destinations[1:]:
             _log_debug(logs, f"Dry-running push to {label}.")
             result = await run_git_command(
                 "push", "--dry-run", remote, *arguments, cwd=repo_dir, env=env, log=logs
