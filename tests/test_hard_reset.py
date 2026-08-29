@@ -24,6 +24,47 @@ class HardResetValidationTests(unittest.TestCase):
             ("merge-base", "--is-ancestor", "abc123", "origin/main"),
         )
 
+    def test_formats_backup_branch_from_original_tip_metadata(self) -> None:
+        command = mock.AsyncMock(
+            side_effect=[
+                CommandResult(0, "abc1234\n", ""),
+                CommandResult(0, "2026-08-29T20:01:00+00:00\n", ""),
+                CommandResult(0, "", ""),
+            ]
+        )
+
+        with mock.patch.object(app, "run_git_command", command):
+            result = asyncio.run(
+                app._format_reset_backup_branch(
+                    Path("/repo"),
+                    {},
+                    LogSink([]),
+                    "main",
+                    "archive/{branch}-{date}-{commit_id}",
+                )
+            )
+
+        self.assertEqual(result, "archive/main-2026-0829-2001-abc1234")
+        self.assertEqual(
+            command.await_args_list[-1].args,
+            ("check-ref-format", "--branch", result),
+        )
+
+    def test_rejects_unknown_backup_format_specifier(self) -> None:
+        command = mock.AsyncMock(
+            side_effect=[
+                CommandResult(0, "abc1234\n", ""),
+                CommandResult(0, "2026-08-29T20:01:00+00:00\n", ""),
+            ]
+        )
+        with mock.patch.object(app, "run_git_command", command):
+            with self.assertRaisesRegex(RuntimeError, "Invalid backup branch name format"):
+                asyncio.run(
+                    app._format_reset_backup_branch(
+                        Path("/repo"), {}, LogSink([]), "main", "{unknown}"
+                    )
+                )
+
     def test_rejects_commit_not_contained_in_remote_branch(self) -> None:
         command = mock.AsyncMock(return_value=CommandResult(1, "", ""))
 

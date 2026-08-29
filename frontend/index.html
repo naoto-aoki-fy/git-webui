@@ -552,6 +552,15 @@
             <label for="base_commit" id="base_commit_label">Base Commit ID (e.g., a1b2c3d)</label>
             <input type="text" id="base_commit" name="base_commit">
         </div>
+        <div id="reset_backup_group" class="hidden">
+            <label>
+                <input type="checkbox" id="backup_before_reset" name="backup_before_reset" value="true" checked>
+                Back up branch before hard reset
+            </label>
+            <label for="backup_branch_format">Backup Branch Name</label>
+            <input type="text" id="backup_branch_format" name="backup_branch_format" value="archive/{branch}-{date}-{commit_id}">
+            <p class="subtle">Available format specifiers: <code>{branch}</code>, <code>{date}</code>, and <code>{commit_id}</code>.</p>
+        </div>
         <div id="git_user_group">
             <label for="git_user">Git Author (Committer)</label>
             <select id="git_user" name="git_user">
@@ -689,6 +698,9 @@
     const commitIdGroup = document.getElementById("commit_id_group");
     const commitIdField = document.getElementById("base_commit");
     const commitIdLabel = document.getElementById("base_commit_label");
+    const resetBackupGroup = document.getElementById("reset_backup_group");
+    const backupBeforeResetField = document.getElementById("backup_before_reset");
+    const backupBranchFormatField = document.getElementById("backup_branch_format");
     const branchGroup = document.getElementById("branch_group");
     const mirrorRepositoryGroup = document.getElementById("mirror_repository_group");
     const syncMethodGroup = document.getElementById("sync_method_group");
@@ -1480,6 +1492,10 @@
             }
         }
         commitIdGroup.classList.toggle("hidden", isConfigMode || !needsCommit);
+        const isResetMode = selectedMode === "revert_to_commit";
+        resetBackupGroup.classList.toggle("hidden", !isResetMode);
+        backupBeforeResetField.disabled = !isResetMode;
+        backupBranchFormatField.disabled = !isResetMode;
         if (needsCommit) {
             commitIdField.removeAttribute("disabled");
             commitIdField.setAttribute("required", "");

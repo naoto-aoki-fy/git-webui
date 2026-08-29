@@ -1356,6 +1356,42 @@ async def _verify_reset_commit_on_branch(
         )
 
 
+async def _format_reset_backup_branch(
+    repo_dir: Path,
+    env: Dict[str, str],
+    logs: LogSink,
+    branch: str,
+    template: str,
+) -> str:
+    """Expand a reset-backup branch template using the original remote tip."""
+    remote_branch = f"origin/{branch}"
+    commit_result = await run_git_command(
+        "rev-parse", "--short=7", remote_branch, cwd=repo_dir, env=env, log=logs
+    )
+    date_result = await run_git_command(
+        "show", "-s", "--format=%cI", remote_branch, cwd=repo_dir, env=env, log=logs
+    )
+    if commit_result.returncode != 0 or date_result.returncode != 0:
+        raise RuntimeError("Failed to read reset backup branch metadata")
+
+    try:
+        committer_date = datetime.fromisoformat(date_result.stdout.strip())
+        backup_branch = template.format(
+            commit_id=commit_result.stdout.strip(),
+            branch=branch,
+            date=committer_date.strftime("%Y-%m%d-%H%M"),
+        )
+    except (KeyError, ValueError) as exc:
+        raise RuntimeError(f"Invalid backup branch name format: {exc}") from exc
+
+    check_result = await run_git_command(
+        "check-ref-format", "--branch", backup_branch, cwd=repo_dir, env=env, log=logs
+    )
+    if check_result.returncode != 0:
+        raise RuntimeError(f"Invalid backup branch name '{backup_branch}'")
+    return backup_branch
+
+
 async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, object]:
     _log_debug(logs, "Received submission payload.")
     repository_owner = form.get("repository_owner", "").strip()
@@ -1376,6 +1412,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     branch_mode = form.get("branch_mode", "default").strip()
     sync_push_option = form.get("sync_push_option", "all").strip()
     base_commit = form.get("base_commit", "").strip()
+    backup_before_reset = form.get("backup_before_reset") == "true"
+    backup_branch_format = form.get(
+        "backup_branch_format", "archive/{branch}-{date}-{commit_id}"
+    ).strip()
     commit_message = form.get("commit_message", "").replace("\r\n", "\n")
     commit_message = commit_message.strip("\n")
     allow_empty_commit = form.get("allow_empty_commit") == "true"
@@ -1415,6 +1455,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "branch_mode": branch_mode,
         "sync_push_option": sync_push_option,
         "base_commit": base_commit,
+        "backup_before_reset": "true" if backup_before_reset else "",
+        "backup_branch_format": backup_branch_format,
         "files": json.dumps(add_files),
     }
 
@@ -1485,6 +1527,9 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     if branch_mode == "revert_to_commit" and not base_commit:
         _log_debug(logs, "Commit ID missing for revert mode.")
         logs.append(_timestamped("Commit ID is required for revert mode."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "revert_to_commit" and backup_before_reset and not backup_branch_format:
+        logs.append(_timestamped("Backup branch name format is required when backup is enabled."))
         return {"form_values": form_values, "success": False}
     if branch_mode in {"from_commit", "orphan"} and not new_branch:
         _log_debug(logs, "New branch name missing for selected branch mode.")
@@ -1625,6 +1670,18 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     base_commit,
                     branch,
                 )
+                if backup_before_reset:
+                    backup_branch = await _format_reset_backup_branch(
+                        repo_dir, env, logs, branch, backup_branch_format
+                    )
+                    logs.append(_timestamped(f"Backing up {branch} as {backup_branch}."))
+                    await _push_to_remotes(
+                        repo_dir,
+                        env,
+                        logs,
+                        repository_name,
+                        f"origin/{branch}:refs/heads/{backup_branch}",
+                    )
                 _log_debug(logs, f"Checking out existing branch '{branch}' from origin for revert mode.")
                 checkout_result = await run_git_command(
                     "switch",
