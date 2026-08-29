@@ -43,3 +43,31 @@ test("maps a Codex turn to normalized candidates and cleans up its thread", asyn
     assert.deepEqual(client.requests.map(({method}) => method), ["thread/start", "turn/start", "thread/unsubscribe", "thread/delete"]);
     assert.equal(client.requests[1].params.outputSchema.constructor, Object);
 });
+
+test("supports NDJSON without sending an output schema", async () => {
+    const client = new MockClient();
+    const ndjson = [
+        {id: 1, style: "short", title: "Short", commit_message: "fix: one", recommended_adoption_level: 5, reason: "Clear.", recommended: true},
+        {id: 2, style: "standard", title: "Standard", commit_message: "fix: two", recommended_adoption_level: 4, reason: "Complete.", recommended: false},
+    ].map(JSON.stringify).join("\n");
+    const originalRequest = client.request.bind(client);
+    client.request = async (method, params) => {
+        if (method === "turn/start") {
+            client.requests.push({method, params});
+            queueMicrotask(() => {
+                client.handlers.get("item/completed")({threadId: "thread-1", turnId: "turn-1", item: {type: "agentMessage", text: ndjson}});
+                client.handlers.get("turn/completed")({threadId: "thread-1", turnId: "turn-1", turn: {status: "completed"}});
+            });
+            return {turn: {id: "turn-1"}};
+        }
+        return originalRequest(method, params);
+    };
+    const provider = new CodexCandidateProvider({endpoint: "ws://localhost", model: "codex"}, client);
+    const value = await provider.generateCandidates({
+        systemPrompt: "system", userPrompt: "patch", outputFormat: "ndjson", outputSchema: {},
+        signal: new AbortController().signal, onContent: () => {}, onReasoning: () => {},
+    });
+
+    assert.equal(value.recommended_candidate_id, 1);
+    assert.equal(Object.hasOwn(client.requests[1].params, "outputSchema"), false);
+});

@@ -58,6 +58,17 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
             html,
         )
 
+    async def test_codex_candidate_output_format_is_selectable_and_persisted(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('id="codex_candidate_output_format"', html)
+        self.assertIn('candidateOutputFormat: codexCandidateOutputFormatField.value', html)
+        self.assertIn(
+            'const outputFormat = isCodex ? codexCandidateOutputFormatField.value',
+            html,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

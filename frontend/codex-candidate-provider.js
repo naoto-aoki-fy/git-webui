@@ -15,7 +15,7 @@
 
     class CodexCandidateProvider {
         constructor(settings, client = new Client()) {
-            this.settings = settings; this.client = client; this.outputFormat = "structured_json";
+            this.settings = settings; this.client = client;
             approvalMethods.forEach((method) => client.onServerRequest(method, () => ({decision: "decline"})));
         }
         async connect() { await this.client.connect(this.settings.endpoint); }
@@ -67,17 +67,18 @@
             };
             request.signal?.addEventListener("abort", abort, {once: true});
             try {
+                const outputFormat = request.outputFormat || this.settings.outputFormat || "structured_json";
                 const turn = await this.client.request("turn/start", {
                     threadId,
                     input: [{type: "text", text: request.systemPrompt + "\n\nDo not use tools. Use only the supplied text.\n\n" + request.userPrompt}],
                     ...(this.settings.model ? {model: this.settings.model} : {}),
-                    outputSchema: request.outputSchema,
+                    ...(outputFormat === "structured_json" ? {outputSchema: request.outputSchema} : {}),
                 });
                 generation.turnId = generation.turnId || turn.turn?.id || turn.turnId || turn.id;
                 if (generation.cancelled) await abort();
                 await completed;
                 if (!generation.content) throw new Error("Codex turn did not contain an agent message.");
-                return contract.parseCandidateResponse(generation.content, "structured_json");
+                return contract.parseCandidateResponse(generation.content, outputFormat);
             } finally {
                 request.signal?.removeEventListener("abort", abort);
                 subscriptions.forEach((unsubscribe) => unsubscribe());

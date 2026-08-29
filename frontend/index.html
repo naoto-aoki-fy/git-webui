@@ -525,6 +525,14 @@
                 <p class="subtle">Direct WebSocket support is intended for a local Codex App Server only.</p>
                 <label for="codex_model">Model</label>
                 <select id="codex_model"><option value="">Server default</option></select>
+                <br><br>
+                <label for="codex_candidate_output_format">Candidate output format</label>
+                <select id="codex_candidate_output_format">
+                    <option value="ndjson">NDJSON</option>
+                    <option value="flat_json">FlatJSON (flat object)</option>
+                    <option value="structured_json" selected>JSON (Structured Outputs)</option>
+                </select>
+                <p class="subtle">Structured Outputs passes an output schema to Codex App Server.</p>
                 <button type="button" class="button secondary" id="codex_connect">Connect and load models</button>
                 <span id="codex_connection_status" class="subtle">Disconnected</span>
             </div>
@@ -718,6 +726,7 @@
     const codexSettingsGroup = document.getElementById("codex_settings_group");
     const codexEndpointField = document.getElementById("codex_endpoint_url");
     const codexModelField = document.getElementById("codex_model");
+    const codexCandidateOutputFormatField = document.getElementById("codex_candidate_output_format");
     const codexConnectButton = document.getElementById("codex_connect");
     const codexConnectionStatus = document.getElementById("codex_connection_status");
     const generateCandidatesButton = document.getElementById("generate_commit_candidates");
@@ -1966,7 +1975,10 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             candidateOutputFormat: openAICandidateOutputFormatField.value,
             additionalRequestParameters: openAIAdditionalRequestParametersField.value,
         },
-        codex: {endpoint: codexEndpointField.value, model: codexModelField.value},
+        codex: {
+            endpoint: codexEndpointField.value, model: codexModelField.value,
+            candidateOutputFormat: codexCandidateOutputFormatField.value,
+        },
     });
 
     const updateProviderSettingsVisibility = () => {
@@ -1998,6 +2010,9 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             if (codex && typeof codex.endpoint === "string") codexEndpointField.value = codex.endpoint;
             if (codex && typeof codex.model === "string" && codex.model) {
                 codexModelField.append(new Option(codex.model, codex.model)); codexModelField.value = codex.model;
+            }
+            if (codex && ["ndjson", "flat_json", "structured_json"].includes(codex.candidateOutputFormat)) {
+                codexCandidateOutputFormatField.value = codex.candidateOutputFormat;
             }
         } catch (error) {
             console.warn("Unable to read LLM provider settings", error);
@@ -2084,7 +2099,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
 
     const generateCommitCandidates = async () => {
         const isCodex = llmProviderField.value === "codex";
-        const outputFormat = isCodex ? "structured_json" : openAICandidateOutputFormatField.value;
+        const outputFormat = isCodex ? codexCandidateOutputFormatField.value : openAICandidateOutputFormatField.value;
         if (!isCodex && (!openAITokenField.value.trim() || !openAIModelField.value.trim())) {
             alert("Enter an Authorization Token and model before generating suggestions.");
             return;
@@ -2117,7 +2132,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             renderCandidates(await provider.generateCandidates({
                 systemPrompt: buildCommitCandidateSystemPrompt(outputFormat),
                 userPrompt: buildUserChangesPrompt(),
-                outputSchema: CandidateContract.candidateSchema, signal: controller.signal,
+                outputFormat, outputSchema: CandidateContract.candidateSchema, signal: controller.signal,
                 onContent: setCandidateProgress, onReasoning: setCandidateThinking,
             }));
         } catch (error) {
@@ -2269,7 +2284,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         useCandidateButton.addEventListener("click", () => useCommitCandidate());
     }
     [openAIEndpointField, openAITokenField, openAIModelField, openAICandidateOutputFormatField,
-        openAIAdditionalRequestParametersField, codexModelField].forEach((field) => {
+        openAIAdditionalRequestParametersField, codexModelField, codexCandidateOutputFormatField].forEach((field) => {
         field.addEventListener("change", saveLLMSettings);
     });
     llmProviderField.addEventListener("change", () => { updateProviderSettingsVisibility(); saveLLMSettings(); });
