@@ -7,8 +7,29 @@
     "use strict";
     const settingsApi = browserApi || nodeApi;
 
+    const determineModelListEndpoint = (completionEndpoint) => {
+        const url = new URL(completionEndpoint);
+        const marker = "/chat/completions";
+        const markerIndex = url.pathname.replace(/\/$/, "").lastIndexOf(marker);
+        url.pathname = markerIndex >= 0
+            ? url.pathname.slice(0, markerIndex) + "/models"
+            : url.pathname.replace(/\/$/, "") + "/models";
+        url.search = "";
+        url.hash = "";
+        return url.toString();
+    };
+
     class OpenAICandidateProvider {
         constructor(settings) { this.settings = settings; this.outputFormat = settings.outputFormat; }
+        async listModels() {
+            const response = await fetch(determineModelListEndpoint(this.settings.endpoint), {
+                headers: {"Authorization": "Bearer " + this.settings.token},
+            });
+            if (!response.ok) throw new Error("Model endpoint returned HTTP " + response.status + ".");
+            const body = await response.json();
+            if (!Array.isArray(body.data)) throw new Error("Model endpoint response did not contain a model list.");
+            return body.data;
+        }
         async generateCandidates(request) {
             const response = await fetch(this.settings.endpoint, {
                 method: "POST", signal: request.signal,
@@ -27,5 +48,5 @@
         }
         async disconnect() {}
     }
-    return {OpenAICandidateProvider};
+    return {OpenAICandidateProvider, determineModelListEndpoint};
 });
