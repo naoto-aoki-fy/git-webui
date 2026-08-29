@@ -2048,8 +2048,27 @@ async def config_handler(request: web.Request) -> web.Response:
     payload = _serialize_config()
     try:
         force_refresh = request.query.get("refresh", "").lower() in {"1", "true", "yes"}
-        payload.update(await _github_listing(force_refresh=force_refresh))
+        refresh_state = request.app[GITHUB_REFRESH_TASK_KEY]
+        startup_refresh = refresh_state.get("task")
+        waited_for_startup_refresh = startup_refresh is not None and not startup_refresh.done()
+        if waited_for_startup_refresh:
+            await startup_refresh
+
+        refresh_error = refresh_state.get("error")
+        cached = _read_github_cache() if refresh_error else None
+        if refresh_error and cached is None:
+            raise RuntimeError(refresh_error)
+
+        payload.update(
+            cached
+            if cached is not None
+            else await _github_listing(
+                force_refresh=force_refresh and not waited_for_startup_refresh
+            )
+        )
         payload["git_users"] = payload["github_users"]
+        if refresh_error:
+            payload["github_users_error"] = refresh_error
     except RuntimeError as exc:
         payload["github_users"] = []
         payload["active_github_user"] = None
@@ -2066,14 +2085,15 @@ async def close_sse_clients(app: web.Application) -> None:
     app[SSE_CLIENTS_KEY].clear()
 
 
-async def refresh_github_listing_after_server_start(_: web.Application) -> None:
+async def refresh_github_listing_after_server_start(app: web.Application) -> None:
     """Populate GitHub data after the backend has begun accepting requests."""
     try:
         await _github_listing(force_refresh=True)
-    except RuntimeError:
+        app[GITHUB_REFRESH_TASK_KEY].pop("error", None)
+    except RuntimeError as exc:
         # A missing or unauthenticated GitHub CLI must not prevent the backend
         # from serving requests; /config will expose the actionable error.
-        pass
+        app[GITHUB_REFRESH_TASK_KEY]["error"] = str(exc)
 
 
 def server_started(app: web.Application, message: str) -> None:

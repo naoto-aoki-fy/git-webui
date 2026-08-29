@@ -16,6 +16,7 @@ from backend.app import (
     _read_github_cache,
     _repository_owner,
     _write_github_cache,
+    config_handler,
     create_app,
     server_started,
 )
@@ -156,6 +157,46 @@ class GithubUsersTests(unittest.TestCase):
                     output.assert_called_once_with("Listening")
                 await app[GITHUB_REFRESH_TASK_KEY]["task"]
                 listing.assert_awaited_once_with(force_refresh=True)
+
+        asyncio.run(exercise())
+
+    def test_config_waits_for_startup_refresh_before_reading_cache(self) -> None:
+        async def exercise() -> None:
+            app = create_app(serve_frontend=False)
+            refresh_started = asyncio.Event()
+            allow_refresh = asyncio.Event()
+            refreshed_listing = {
+                "github_users": [{"id": 2, "login": "new-user", "name": "New", "email": "2+new-user@users.noreply.github.com"}],
+                "active_github_user": "new-user",
+                "github_repositories": [],
+            }
+
+            async def listing(force_refresh: bool = False) -> dict[str, object]:
+                if force_refresh:
+                    refresh_started.set()
+                    await allow_refresh.wait()
+                    return refreshed_listing
+                return refreshed_listing
+
+            with mock.patch("backend.app._github_listing", mock.AsyncMock(side_effect=listing)) as github_listing:
+                server_started(app, "Listening")
+                await refresh_started.wait()
+                request = mock.Mock()
+                request.app = app
+                request.query = {}
+                response_task = asyncio.create_task(config_handler(request))
+                await asyncio.sleep(0)
+                self.assertFalse(response_task.done())
+
+                allow_refresh.set()
+                response = await response_task
+                body = json.loads(response.body)
+
+            self.assertEqual(body["payload"]["github_users"][0]["login"], "new-user")
+            self.assertEqual(
+                github_listing.await_args_list,
+                [mock.call(force_refresh=True), mock.call(force_refresh=False)],
+            )
 
         asyncio.run(exercise())
 
