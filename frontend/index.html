@@ -150,6 +150,11 @@
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 1rem;
         }
+        .config-group {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
         .add-file-entry {
             padding: 1rem;
             margin-bottom: 1rem;
@@ -450,7 +455,7 @@
             </div>
             <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Choose “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
         </div>
-        <div id="config_group" class="field-group hidden">
+        <div id="config_group" class="config-group hidden">
             <div>
                 <label for="theme_mode">Theme</label>
                 <select id="theme_mode" name="theme_mode">

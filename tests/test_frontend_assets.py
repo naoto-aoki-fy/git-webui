@@ -36,6 +36,14 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn('commitMessageAction:', html)
 
+    async def test_config_fields_use_a_vertical_layout(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('id="config_group" class="config-group hidden"', html)
+        self.assertIn(".config-group {", html)
+        self.assertIn("flex-direction: column;", html)
+
     async def test_branch_is_required(self) -> None:
         response = await self.client.get("/")
         html = await response.text()
