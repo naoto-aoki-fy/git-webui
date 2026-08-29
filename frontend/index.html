@@ -1069,6 +1069,10 @@
     };
 
     const handleServerEvent = (payload) => {
+        if (payload.type === "connected") {
+            updateBackendStatus("connected", "connected");
+            void fetchConfig(false, true);
+        }
         if (payload.type === "log") {
             appendLogLine(payload.line);
         }
@@ -1751,7 +1755,10 @@
         automaticallySelectedGitUser = gitUserField.value;
     };
 
-    const fetchConfig = async (forceRefresh = false) => {
+    const fetchConfig = async (forceRefresh = false, preserveGitUser = false) => {
+        const selectedGitUser = preserveGitUser && gitUserField && !gitUserField.hasAttribute("disabled")
+            ? gitUserField.value
+            : null;
         if (forceRefresh && refreshGithubListsButton) {
             refreshGithubListsButton.disabled = true;
             refreshGithubListsButton.textContent = "Refreshing...";
@@ -1761,9 +1768,18 @@
             if (!healthPayload || healthPayload.status !== "ok") {
                 throw new Error("Health check failed");
             }
-            const configResponse = await requestApi("GET", "/config" + (forceRefresh ? "?refresh=1" : ""));
+            const configResponse = await requestApi(
+                "GET",
+                "/config" + (forceRefresh ? "?refresh=1" : ""),
+            );
             const payload = configResponse.payload || {};
             populateConfig(payload);
+            if (
+                selectedGitUser &&
+                Array.from(gitUserField.options).some((option) => option.value === selectedGitUser)
+            ) {
+                gitUserField.value = selectedGitUser;
+            }
             updateBackendStatus("connected", "connected");
         } catch (error) {
             console.error("Failed to load backend config", error);
@@ -1788,7 +1804,6 @@
         }
         activeClientId = null;
         connectEventStream();
-        fetchConfig();
         appendLogLine("[client] Using backend " + backendUrl);
     };
 
@@ -2499,7 +2514,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
         backendUrlField.value = initialBackend;
     }
     connectEventStream();
-    fetchConfig();
 </script>
 </body>
 </html>

@@ -77,6 +77,18 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
             html,
         )
 
+    async def test_config_is_reloaded_when_the_event_stream_connects(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('if (payload.type === "connected") {', html)
+        self.assertIn('void fetchConfig(false, true);', html)
+        self.assertIn(
+            'Array.from(gitUserField.options).some((option) => option.value === selectedGitUser)',
+            html,
+        )
+        self.assertNotIn("connectEventStream();\n        fetchConfig();", html)
+
 
 if __name__ == "__main__":
     unittest.main()
