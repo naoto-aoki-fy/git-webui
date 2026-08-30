@@ -8,6 +8,22 @@ from backend.app import CommandResult, LogSink
 
 
 class HardResetValidationTests(unittest.TestCase):
+    def test_can_skip_commit_containment_check(self) -> None:
+        command = mock.AsyncMock()
+        logs = LogSink([])
+
+        with mock.patch.object(app, "run_git_command", command):
+            asyncio.run(
+                app._verify_reset_commit_on_branch(
+                    Path("/repo"), {}, logs, "abc123", "main", skip_check=True
+                )
+            )
+
+        command.assert_not_awaited()
+        self.assertIn(
+            "Skipping the reset commit containment check", "\n".join(logs.entries)
+        )
+
     def test_accepts_commit_contained_in_remote_branch(self) -> None:
         command = mock.AsyncMock(return_value=CommandResult(0, "", ""))
         logs = LogSink([])

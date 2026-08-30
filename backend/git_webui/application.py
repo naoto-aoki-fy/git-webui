@@ -1334,8 +1334,12 @@ async def _verify_reset_commit_on_branch(
     logs: LogSink,
     commit_id: str,
     branch: str,
+    skip_check: bool = False,
 ) -> None:
     """Ensure a hard-reset target is already reachable from the remote branch."""
+    if skip_check:
+        _log_debug(logs, "Skipping the reset commit containment check at the user's request.")
+        return
     remote_branch = f"origin/{branch}"
     _log_debug(
         logs,
@@ -1412,6 +1416,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     branch_mode = form.get("branch_mode", "default").strip()
     sync_push_option = form.get("sync_push_option", "all").strip()
     base_commit = form.get("base_commit", "").strip()
+    skip_reset_commit_check = form.get("skip_reset_commit_check") == "true"
     backup_before_reset = form.get("backup_before_reset") == "true"
     backup_branch_format = form.get(
         "backup_branch_format", "archive/{branch}-{date}-{commit_id}"
@@ -1455,6 +1460,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "branch_mode": branch_mode,
         "sync_push_option": sync_push_option,
         "base_commit": base_commit,
+        "skip_reset_commit_check": "true" if skip_reset_commit_check else "",
         "backup_before_reset": "true" if backup_before_reset else "",
         "backup_branch_format": backup_branch_format,
         "files": json.dumps(add_files),
@@ -1669,6 +1675,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     logs,
                     base_commit,
                     branch,
+                    skip_reset_commit_check,
                 )
                 if backup_before_reset:
                     backup_branch = await _format_reset_backup_branch(

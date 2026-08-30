@@ -554,6 +554,11 @@
         </div>
         <div id="reset_backup_group" class="hidden">
             <label>
+                <input type="checkbox" id="skip_reset_commit_check" name="skip_reset_commit_check" value="true">
+                Allow reset even if the branch does not contain the commit
+            </label>
+            <p class="subtle">Disabled by default. Enabling this allows the branch to be reset to an unrelated commit.</p>
+            <label>
                 <input type="checkbox" id="backup_before_reset" name="backup_before_reset" value="true" checked>
                 Back up branch before hard reset
             </label>
@@ -699,6 +704,7 @@
     const commitIdField = document.getElementById("base_commit");
     const commitIdLabel = document.getElementById("base_commit_label");
     const resetBackupGroup = document.getElementById("reset_backup_group");
+    const skipResetCommitCheckField = document.getElementById("skip_reset_commit_check");
     const backupBeforeResetField = document.getElementById("backup_before_reset");
     const backupBranchFormatField = document.getElementById("backup_branch_format");
     const branchGroup = document.getElementById("branch_group");
@@ -1281,6 +1287,7 @@
         branch_mode: getSelectedBranchMode(),
         new_branch: newBranchField.value,
         base_commit: commitIdField.value,
+        skip_reset_commit_check: skipResetCommitCheckField.checked,
         git_user: gitUserField.value,
         commit_message: commitMessageField.value,
         pr_message: prMessageField.value,
@@ -1318,6 +1325,9 @@
         applyDraftValue(branchField, draft.branch ?? (draftCreatesBranch ? draft.new_branch : undefined));
         applyDraftValue(newBranchField, draft.new_branch);
         applyDraftValue(commitIdField, draft.base_commit);
+        if (typeof draft.skip_reset_commit_check === "boolean") {
+            skipResetCommitCheckField.checked = draft.skip_reset_commit_check;
+        }
         applyDraftValue(gitUserField, draft.git_user);
         applyDraftValue(commitMessageField, draft.commit_message);
         applyDraftValue(prMessageField, draft.pr_message);
@@ -1498,6 +1508,7 @@
         commitIdGroup.classList.toggle("hidden", isConfigMode || !needsCommit);
         const isResetMode = selectedMode === "revert_to_commit";
         resetBackupGroup.classList.toggle("hidden", !isResetMode);
+        skipResetCommitCheckField.disabled = !isResetMode;
         backupBeforeResetField.disabled = !isResetMode;
         backupBranchFormatField.disabled = !isResetMode;
         if (needsCommit) {
