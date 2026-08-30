@@ -3,6 +3,12 @@
 <head>
     <meta charset="utf-8">
     <title>git apply web ui</title>
+    <script>
+        const platform = navigator.userAgentData?.platform || navigator.platform || "";
+        if (/^win/i.test(platform)) {
+            document.documentElement.classList.add("windows");
+        }
+    </script>
     <style>
         :root {
             color-scheme: light;
@@ -93,9 +99,14 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             font-family: monospace;
-            line-height: calc(1em + 2px);
             background: var(--bg-input);
             color: var(--text-body);
+        }
+        .windows input[type=text],
+        .windows input[type=password],
+        .windows textarea,
+        .windows select {
+            line-height: calc(1em + 2px);
         }
         textarea {
             min-height: 220px;

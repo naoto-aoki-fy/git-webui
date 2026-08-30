@@ -44,6 +44,15 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(".config-group {", html)
         self.assertIn("flex-direction: column;", html)
 
+    async def test_extra_input_line_height_is_only_applied_on_windows(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn("navigator.userAgentData?.platform || navigator.platform", html)
+        self.assertIn('document.documentElement.classList.add("windows");', html)
+        self.assertIn(".windows input[type=text],", html)
+        self.assertEqual(html.count("line-height: calc(1em + 2px);"), 1)
+
     async def test_branch_is_required(self) -> None:
         response = await self.client.get("/")
         html = await response.text()
