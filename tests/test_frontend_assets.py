@@ -98,6 +98,24 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("connectEventStream();\n        fetchConfig();", html)
 
+    async def test_github_users_can_be_updated_beside_git_author(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        git_author_group = html[
+            html.index('<div id="git_user_group">'):
+            html.index('<div id="commit_message_group">')
+        ]
+        self.assertIn(
+            'id="update_github_users">Update GitHub users</button>',
+            git_author_group,
+        )
+        self.assertIn(
+            'updateGithubUsersButton.addEventListener("click", () => fetchConfig(true));',
+            html,
+        )
+        self.assertIn('"/config" + (forceRefresh ? "?refresh=1" : "")', html)
+
 
 if __name__ == "__main__":
     unittest.main()

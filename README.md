@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list after the aiohttp server starts and on demand with the UI's **Refresh GitHub lists** button; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
+- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list after the aiohttp server starts and on demand with the **Update GitHub users** button beside the Git Author field; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
 - Git author identity discovery from authenticated GitHub accounts. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The repository owner is selected by default, or the configured additional-push destination owner when a prefix matches.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.
@@ -86,7 +86,7 @@ Copy the sample config and edit values for your machine:
 cp config-sample.toml config.toml
 ```
 
-Git identities do not need to be stored in `config.toml`: they are fetched from GitHub at startup and by the frontend's **Refresh GitHub lists** button. The backend uses the profile name (or login when no name is set) and the GitHub pseudo-email `<id>+<login>@users.noreply.github.com`.
+Git identities do not need to be stored in `config.toml`: they are fetched from GitHub at startup and by the frontend's **Update GitHub users** button. The backend uses the profile name (or login when no name is set) and the GitHub pseudo-email `<id>+<login>@users.noreply.github.com`.
 
 `config.toml` optionally supports a `repository_prefix_destinations` array of `[prefix, destination_owner]` pairs. Matching is case-insensitive and the first match wins. For example, `["upstream-", "my-user"]` maps `upstream-widget` to `my-user/widget`. Patch commits, newly created branches, orphan branches, hard resets, and branch merges are pushed both to the original repository and to the mapped repository. The destination owner becomes the default Git author and is automatically filled, with the derived repository name, as Repository B in sync mode. `git_user_defaults` remains accepted during its deprecation period.
 

@@ -373,7 +373,6 @@
             <div class="field-header">
                 <label id="repository_label">Repository</label>
                 <div class="field-header-actions">
-                    <button type="button" class="button secondary" id="refresh_github_lists">Refresh GitHub lists</button>
                     <a class="button secondary hidden" id="open_repository" href="" target="_blank" rel="noopener">Open on GitHub</a>
                 </div>
             </div>
@@ -578,7 +577,12 @@
             <p class="subtle">Available format specifiers: <code>{branch}</code>, <code>{date}</code>, and <code>{commit_id}</code>.</p>
         </div>
         <div id="git_user_group">
-            <label for="git_user">Git Author (Committer)</label>
+            <div class="field-header">
+                <label for="git_user">Git Author (Committer)</label>
+                <div class="field-header-actions">
+                    <button type="button" class="button secondary" id="update_github_users">Update GitHub users</button>
+                </div>
+            </div>
             <select id="git_user" name="git_user">
                 <option value="">Loading git users...</option>
             </select>
@@ -745,7 +749,7 @@
     const openRepositoryButton = document.getElementById("open_repository");
     const openMirrorRepositoryButton = document.getElementById("open_mirror_repository");
     const swapMirrorRepositoriesButton = document.getElementById("swap_mirror_repositories");
-    const refreshGithubListsButton = document.getElementById("refresh_github_lists");
+    const updateGithubUsersButton = document.getElementById("update_github_users");
     const pastePatchButton = document.getElementById("paste_patch");
     const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
     const openChatGPTButton = document.getElementById("open_chatgpt");
@@ -1781,9 +1785,9 @@
         const selectedGitUser = preserveGitUser && gitUserField && !gitUserField.hasAttribute("disabled")
             ? gitUserField.value
             : null;
-        if (forceRefresh && refreshGithubListsButton) {
-            refreshGithubListsButton.disabled = true;
-            refreshGithubListsButton.textContent = "Refreshing...";
+        if (forceRefresh && updateGithubUsersButton) {
+            updateGithubUsersButton.disabled = true;
+            updateGithubUsersButton.textContent = "Updating...";
         }
         try {
             const healthPayload = await requestApi("GET", "/health");
@@ -1808,9 +1812,9 @@
             resetSelect(gitUserField, "(Unable to load Git users)");
             updateBackendStatus("error", "config error");
         } finally {
-            if (forceRefresh && refreshGithubListsButton) {
-                refreshGithubListsButton.disabled = false;
-                refreshGithubListsButton.textContent = "Refresh GitHub lists";
+            if (forceRefresh && updateGithubUsersButton) {
+                updateGithubUsersButton.disabled = false;
+                updateGithubUsersButton.textContent = "Update GitHub users";
             }
         }
     };
@@ -2502,7 +2506,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
 
     form.addEventListener("input", scheduleDraftSave);
     form.addEventListener("change", scheduleDraftSave);
-    refreshGithubListsButton.addEventListener("click", () => fetchConfig(true));
+    updateGithubUsersButton.addEventListener("click", () => fetchConfig(true));
     repositoryOwnerField.addEventListener("input", () => refreshRepositoryCompletions(repositoryOwnerField.value));
     repositoryField.addEventListener("focus", () => refreshRepositoryCompletions(repositoryOwnerField.value));
     if (mirrorRepositoryOwnerField && mirrorRepositoryField) {
