@@ -1516,9 +1516,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         _log_debug(logs, "Repository A and Repository B are identical in sync mode.")
         logs.append(_timestamped("Repository A and Repository B must be different for sync mode."))
         return {"form_values": form_values, "success": False}
-    if branch_mode == "mirror_repository" and sync_push_option not in {"all", "mirror"}:
+    if branch_mode == "mirror_repository" and sync_push_option not in {"all", "branch", "mirror"}:
         _log_debug(logs, "Invalid sync push option.")
-        logs.append(_timestamped("Sync method must be either all branches or mirror all refs."))
+        logs.append(_timestamped("Sync method must be all branches, a single branch, or mirror all refs."))
+        return {"form_values": form_values, "success": False}
+    if branch_mode == "mirror_repository" and sync_push_option == "branch" and not branch:
+        _log_debug(logs, "Branch name missing for single-branch sync.")
+        logs.append(_timestamped("Branch is required for single-branch sync."))
         return {"form_values": form_values, "success": False}
     if branch_mode == "from_commit" and base_commit and base_commit.upper() == "HEAD":
         _log_debug(logs, "Base commit set to HEAD for branch creation; will resolve to default branch.")
@@ -1569,18 +1573,22 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 await _clone_isolated_repository(
                     repository_url, mirror_dir, env, logs, mirror=True
                 )
-                push_flag = "--mirror" if sync_push_option == "mirror" else "--all"
-                logs.append(_timestamped(f"Syncing Repository A to Repository B with git push {push_flag}: {mirror_repository_url}"))
+                push_arguments = {
+                    "all": ["--all", mirror_repository_url],
+                    "branch": [mirror_repository_url, f"refs/heads/{branch}:refs/heads/{branch}"],
+                    "mirror": ["--mirror", mirror_repository_url],
+                }[sync_push_option]
+                push_description = " ".join(push_arguments)
+                logs.append(_timestamped(f"Syncing Repository A to Repository B with git push {push_description}"))
                 push_result = await run_git_command(
                     "push",
-                    push_flag,
-                    mirror_repository_url,
+                    *push_arguments,
                     cwd=mirror_dir,
                     env=env,
                     log=logs,
                 )
                 if push_result.returncode != 0:
-                    raise RuntimeError(f"git push {push_flag} failed")
+                    raise RuntimeError(f"git push {push_description} failed")
                 logs.append(_timestamped("Repository A was synced to Repository B successfully."))
                 success = True
                 return {"form_values": form_values, "success": success}

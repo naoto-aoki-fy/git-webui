@@ -62,6 +62,17 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("optional: use the current branch", html)
         self.assertIn('branchField.setAttribute("required", "");', html)
 
+    async def test_sync_mode_offers_single_branch(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('name="sync_push_option" value="branch"', html)
+        self.assertIn("const syncsSingleBranch = isMirrorMode", html)
+        self.assertIn(
+            'syncPushOptionInputs.forEach((input) => input.addEventListener("change", toggleCommitField));',
+            html,
+        )
+
     async def test_double_clicking_candidate_uses_its_commit_message(self) -> None:
         response = await self.client.get("/")
         html = await response.text()

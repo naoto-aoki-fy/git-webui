@@ -459,11 +459,15 @@
                     All branches (git push --all)
                 </label>
                 <label>
+                    <input type="radio" name="sync_push_option" value="branch">
+                    Single branch
+                </label>
+                <label>
                     <input type="radio" name="sync_push_option" value="mirror">
                     Mirror all refs (git push --mirror)
                 </label>
             </div>
-            <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Choose “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
+            <p class="subtle">Sync clones Repository A as a mirror, then pushes all branches to Repository B by default. Choose “Single branch” to synchronize only the branch named above, or “Mirror all refs” to use the previous behavior, which may delete Repository B refs that are absent from Repository A.</p>
         </div>
         <div id="config_group" class="config-group hidden">
             <div>
@@ -700,6 +704,7 @@
     const allowEmptyCommit = document.getElementById("allow_empty_commit");
     const patchField = document.getElementById("patch");
     const branchModeInputs = document.querySelectorAll("input[name='branch_mode']");
+    const syncPushOptionInputs = document.querySelectorAll("input[name='sync_push_option']");
     const modeDescription = document.getElementById("mode_description");
 
     const branchModeDescriptions = {
@@ -709,7 +714,7 @@
         orphan: "Create a new orphan branch with no parent history.",
         revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
         merge_branches: "Fast-forward Branch A to Branch B, then delete Branch B after success.",
-        mirror_repository: "Sync Repository A to Repository B. Push all branches by default, or select the previous mirror behavior.",
+        mirror_repository: "Sync Repository A to Repository B. Push all branches by default, a single named branch, or all refs.",
         config: "Configure backend and LLM provider settings without applying repository changes.",
     };
     const configGroup = document.getElementById("config_group");
@@ -1483,6 +1488,8 @@
         }
         const isConfigMode = selectedMode === "config";
         const isMirrorMode = selectedMode === "mirror_repository";
+        const syncsSingleBranch = isMirrorMode
+            && document.querySelector("input[name='sync_push_option']:checked")?.value === "branch";
         const isAddFileMode = selectedMode === "add_file";
         submitButton.textContent = isAddFileMode ? "Add File & Push" : "Apply Patch & Push";
         if (repositoryLabel) {
@@ -1557,8 +1564,8 @@
             }
         }
         const hideDetails = selectedMode === "from_commit" || selectedMode === "revert_to_commit";
-        branchGroup.classList.toggle("hidden", isConfigMode || isMirrorMode);
-        if (!isConfigMode && !isMirrorMode) {
+        branchGroup.classList.toggle("hidden", isConfigMode || (isMirrorMode && !syncsSingleBranch));
+        if (!isConfigMode && (!isMirrorMode || syncsSingleBranch)) {
             branchField.removeAttribute("disabled");
             branchField.setAttribute("required", "");
             branchField.setAttribute("placeholder", selectedMode === "merge_branches" ? "Branch A" : "");
@@ -1851,6 +1858,7 @@
         input.addEventListener("change", toggleCommitField);
         input.addEventListener("change", autofillSyncDestination);
     });
+    syncPushOptionInputs.forEach((input) => input.addEventListener("change", toggleCommitField));
     if (repositoryField) {
         repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
