@@ -19,7 +19,7 @@ The UI supports these main workflows:
    - Stage (`git add -A`), optionally commit, and optionally push.
 
 2. **Create branch from commit**
-   - Create a new branch from a specific commit (or `HEAD`).
+   - Create a new branch from a specific commit, a remote branch name, or `HEAD`.
 
 3. **Create orphan branch**
    - Create an orphan branch and apply/commit there.

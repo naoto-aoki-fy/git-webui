@@ -563,6 +563,21 @@ async def _git_ref_exists(
     return result.returncode == 0
 
 
+async def _resolve_branch_creation_base(
+    repo_dir: Path,
+    base: str,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> str:
+    """Resolve a remote branch name while leaving commit-ish values unchanged."""
+    remote_ref = f"refs/remotes/origin/{base}"
+    if await _git_ref_exists(repo_dir, remote_ref, env, logs):
+        resolved = f"origin/{base}"
+        _log_debug(logs, f"Resolved base branch '{base}' to '{resolved}'.")
+        return resolved
+    return base
+
+
 async def _remote_has_branches(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> bool:
     result = await run_git_command(
         "for-each-ref",
@@ -1654,6 +1669,10 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     base_commit = f"origin/{default_branch}"
                     logs.append(_timestamped(f"Using {base_commit} as the base for branch creation."))
                     _log_debug(logs, f"Resolved base commit to '{base_commit}' for branch creation.")
+                else:
+                    base_commit = await _resolve_branch_creation_base(
+                        repo_dir, base_commit, env, logs
+                    )
                 logs.append(_timestamped(f"Creating branch {new_branch} from commit {base_commit}."))
                 _log_debug(logs, f"Creating branch '{new_branch}' from commit '{base_commit}'.")
                 create_branch_result = await run_git_command(

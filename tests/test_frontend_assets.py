@@ -62,6 +62,15 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("optional: use the current branch", html)
         self.assertIn('branchField.setAttribute("required", "");', html)
 
+    async def test_new_branch_base_accepts_a_commit_or_branch_name(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn("Base Commit ID or Branch Name", html)
+        self.assertIn(
+            "Create a new branch from a base commit ID or branch name.", html
+        )
+
     async def test_sync_mode_offers_single_branch(self) -> None:
         response = await self.client.get("/")
         html = await response.text()

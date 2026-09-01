@@ -563,7 +563,7 @@
             <input type="text" id="new_branch" name="new_branch">
         </div>
         <div id="commit_id_group" class="hidden">
-            <label for="base_commit" id="base_commit_label">Base Commit ID (e.g., a1b2c3d)</label>
+            <label for="base_commit" id="base_commit_label">Base Commit ID or Branch Name</label>
             <input type="text" id="base_commit" name="base_commit">
         </div>
         <div id="reset_backup_group" class="hidden">
@@ -710,7 +710,7 @@
     const branchModeDescriptions = {
         default: "Apply a patch to the selected branch and create a commit.",
         add_file: "Add a file with the specified content, or replace it when overwrite is enabled.",
-        from_commit: "Create a new branch from a base commit ID.",
+        from_commit: "Create a new branch from a base commit ID or branch name.",
         orphan: "Create a new orphan branch with no parent history.",
         revert_to_commit: "Hard reset an existing branch to the specified commit ID.",
         merge_branches: "Fast-forward Branch A to Branch B, then delete Branch B after success.",
@@ -1539,7 +1539,7 @@
             if (commitIdLabel) {
                 commitIdLabel.textContent = selectedMode === "revert_to_commit"
                     ? "Commit ID to Reset Branch To (e.g., a1b2c3d)"
-                    : "Base Commit ID (e.g., a1b2c3d)";
+                    : "Base Commit ID or Branch Name";
             }
         } else {
             commitIdField.setAttribute("disabled", "");
