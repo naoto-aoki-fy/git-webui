@@ -970,7 +970,7 @@ async def _ensure_mirror_cache(
     env: Dict[str, str],
     logs: Optional[LogSink] = None,
 ) -> Path:
-    """Create an immutable bare mirror used only as a clone seed."""
+    """Create or refresh a bare mirror used as a clone seed."""
     mirror_dir = _repo_workspace_for_url(repository_url)
     if mirror_dir.exists():
         bare_result = await run_git_command(
@@ -979,6 +979,13 @@ async def _ensure_mirror_cache(
         if bare_result.returncode != 0 or bare_result.stdout.strip() != "true":
             raise RuntimeError(f"Existing repository cache is not a bare mirror: {mirror_dir}")
         _log_debug(logs, f"Using bare mirror cache at {mirror_dir}.")
+        _log_debug(logs, "Refreshing bare mirror cache from its remote.")
+        update_result = await run_git_command(
+            "remote", "update", "--prune", cwd=mirror_dir, env=env, log=logs
+        )
+        if update_result.returncode != 0:
+            raise RuntimeError("Failed to refresh bare mirror cache")
+        _log_debug(logs, "Bare mirror cache refreshed successfully.")
         return mirror_dir
 
     mirror_dir.parent.mkdir(parents=True, exist_ok=True)

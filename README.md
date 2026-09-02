@@ -155,5 +155,5 @@ A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main
 
 - No authentication layer is built into the backend; run only in trusted environments.
 - GitHub operations use HTTPS and rely on the configured Git credential helper to choose credentials by repository owner; SSH remotes are rejected.
-- The backend keeps immutable per-repository bare mirror caches under `--repo-root`. Every submission uses its own temporary clone and refreshes that clone from the remote, so concurrent operations never share a Git index or working tree.
+- The backend keeps per-repository bare mirror caches under `--repo-root` and refreshes an existing cache from its remote before each operation. Every submission then uses its own temporary clone, so concurrent operations never share a Git index or working tree.
 - This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.

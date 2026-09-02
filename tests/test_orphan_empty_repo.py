@@ -99,7 +99,7 @@ class OrphanEmptyRepoTests(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 text=True,
             ).stdout.splitlines()
-            self.assertEqual(["feature", "main", "stale-local"], cached_branches)
+            self.assertEqual(["feature", "main"], cached_branches)
             self.assertEqual(
                 "true",
                 subprocess.run(
