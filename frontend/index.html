@@ -588,7 +588,7 @@
                 </div>
             </div>
             <select id="git_user" name="git_user">
-                <option value="">Loading git users...</option>
+                <option value="">Auto-select</option>
             </select>
         </div>
         <div id="commit_message_group">
@@ -871,12 +871,9 @@
     const MAX_STORED_VALUES = 10;
     let logStream = null;
     let activeClientId = null;
-    let gitUserConfig = [];
     let githubRepositories = [];
     let draftSaveTimeout = null;
-    let gitUserDefaults = [];
     let repositoryPrefixDestinations = [];
-    let automaticallySelectedGitUser = null;
     let lastCopiedPatchValue = "";
     let manualDisconnect = false;
     let isSubmitting = false;
@@ -1684,24 +1681,6 @@
         return parts.length > 0 ? parts[0] : "";
     };
 
-    const findDefaultGitUserForRepo = () => {
-        const repositoryName = repositoryField.value.trim().toLowerCase();
-        const repositoryOwner = repositoryOwnerField.value.trim().toLowerCase();
-        const destination = findAdditionalRepository();
-        if (destination) {
-            return destination.owner;
-        }
-        for (const rule of gitUserDefaults) {
-            const prefix = typeof rule.repository === "string" ? rule.repository.trim().toLowerCase() : "";
-            if (prefix && repositoryName.startsWith(prefix)) {
-                return rule.github_user;
-            }
-        }
-        const owner = gitUserConfig.find((entry) =>
-            typeof entry.login === "string" && entry.login.toLowerCase() === repositoryOwner);
-        return owner ? owner.login : null;
-    };
-
     const findAdditionalRepository = () => {
         const repositoryName = repositoryField.value.trim();
         const normalizedName = repositoryName.toLowerCase();
@@ -1726,38 +1705,6 @@
         }
     };
 
-    const applyDefaultGitUserForRepository = () => {
-        if (!gitUserField || gitUserField.hasAttribute("disabled")) {
-            return;
-        }
-        const selectedLogin = findDefaultGitUserForRepo();
-        if (selectedLogin && Array.from(gitUserField.options).some((option) => option.value === selectedLogin)) {
-            gitUserField.value = selectedLogin;
-        }
-        automaticallySelectedGitUser = gitUserField.value;
-    };
-
-    const gitUserLabel = (value) => {
-        const option = Array.from(gitUserField.options).find((entry) => entry.value === value);
-        return option ? option.textContent : "(none)";
-    };
-
-    const confirmNonDefaultGitUser = () => {
-        if (
-            !gitUserField ||
-            gitUserField.hasAttribute("disabled") ||
-            automaticallySelectedGitUser === null ||
-            gitUserField.value === automaticallySelectedGitUser
-        ) {
-            return true;
-        }
-        return window.confirm(
-            'Use Git Author (Committer) "' + gitUserLabel(gitUserField.value) +
-            '" instead of the automatically selected "' +
-            gitUserLabel(automaticallySelectedGitUser) + '"?'
-        );
-    };
-
     const populateConfig = (payload) => {
         if (!payload) {
             return;
@@ -1768,13 +1715,15 @@
             : [];
         refreshRepositoryCompletions();
         const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
-        gitUserConfig = gitUsers;
-        gitUserDefaults = Array.isArray(payload.git_user_defaults) ? payload.git_user_defaults : [];
         repositoryPrefixDestinations = Array.isArray(payload.repository_prefix_destinations)
             ? payload.repository_prefix_destinations : [];
         gitUserField.innerHTML = "";
+        const autoOption = document.createElement("option");
+        autoOption.value = "";
+        autoOption.textContent = "Auto-select";
+        gitUserField.appendChild(autoOption);
         if (gitUsers.length === 0) {
-            resetSelect(gitUserField, "(No Git users configured)");
+            autoOption.textContent = "Auto-select (no Git users configured)";
         } else {
             gitUsers.forEach((entry) => {
                 const option = document.createElement("option");
@@ -1783,9 +1732,7 @@
                 gitUserField.appendChild(option);
             });
         }
-        applyDefaultGitUserForRepository();
         autofillSyncDestination();
-        automaticallySelectedGitUser = gitUserField.value;
     };
 
     const fetchConfig = async (forceRefresh = false, preserveGitUser = false) => {
@@ -1860,16 +1807,12 @@
     });
     syncPushOptionInputs.forEach((input) => input.addEventListener("change", toggleCommitField));
     if (repositoryField) {
-        repositoryField.addEventListener("input", applyDefaultGitUserForRepository);
-        repositoryField.addEventListener("change", applyDefaultGitUserForRepository);
         repositoryField.addEventListener("input", autofillSyncDestination);
         repositoryField.addEventListener("change", autofillSyncDestination);
         repositoryField.addEventListener("input", updateRepositoryLinkButton);
         repositoryField.addEventListener("change", updateRepositoryLinkButton);
     }
     if (repositoryOwnerField) {
-        repositoryOwnerField.addEventListener("input", applyDefaultGitUserForRepository);
-        repositoryOwnerField.addEventListener("change", applyDefaultGitUserForRepository);
         repositoryOwnerField.addEventListener("input", updateRepositoryLinkButton);
         repositoryOwnerField.addEventListener("change", updateRepositoryLinkButton);
     }
@@ -1917,7 +1860,6 @@
             mirrorRepositoryField.value = repositoryA;
             updateRepositoryLinkButton();
             updateMirrorRepositoryLinkButton();
-            applyDefaultGitUserForRepository();
             refreshRepositoryCompletions(repositoryOwnerField.value);
             scheduleDraftSave();
         });
@@ -1949,10 +1891,6 @@
         }
         if (commitMessageField) {
             commitMessageField.setCustomValidity("");
-        }
-        if (!confirmNonDefaultGitUser()) {
-            gitUserField.focus();
-            return;
         }
         const payload = Object.fromEntries(new FormData(form).entries());
         const branchMode = payload.branch_mode || "default";
@@ -2464,7 +2402,6 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
             updatePatchCjkIndicator();
         }
         clearCopyPatchIndicatorIfPatchChanged();
-        applyDefaultGitUserForRepository();
         updateRepositoryLinkButton();
         updateMirrorRepositoryLinkButton();
         const cleanHash = querySource === "hash" ? "" : window.location.hash;

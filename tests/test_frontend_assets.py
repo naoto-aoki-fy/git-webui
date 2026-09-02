@@ -136,6 +136,15 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn('"/config" + (forceRefresh ? "?refresh=1" : "")', html)
 
+    async def test_git_author_defaults_to_backend_auto_selection(self) -> None:
+        response = await self.client.get("/")
+        html = await response.text()
+
+        self.assertIn('<option value="">Auto-select</option>', html)
+        self.assertIn('autoOption.textContent = "Auto-select";', html)
+        self.assertNotIn("applyDefaultGitUserForRepository", html)
+        self.assertNotIn("confirmNonDefaultGitUser", html)
+
 
 if __name__ == "__main__":
     unittest.main()

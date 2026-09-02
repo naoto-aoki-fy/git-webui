@@ -1321,6 +1321,45 @@ def _additional_repository(repository_name: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def _auto_select_git_user(
+    repository_owner: str,
+    repository_name: str,
+    github_users: List[Dict[str, object]],
+) -> Optional[Dict[str, object]]:
+    """Choose the configured account that should author a repository commit."""
+    preferred_logins: List[str] = []
+    additional = _additional_repository(repository_name)
+    if additional:
+        preferred_logins.append(additional[0])
+    for rule in APP_CONFIG.get("git_user_defaults", []):
+        if not isinstance(rule, dict):
+            continue
+        prefix = rule.get("repository")
+        github_user = rule.get("github_user")
+        if (
+            isinstance(prefix, str)
+            and isinstance(github_user, str)
+            and prefix.strip()
+            and repository_name.lower().startswith(prefix.strip().lower())
+        ):
+            preferred_logins.append(github_user)
+            break
+    preferred_logins.append(repository_owner)
+
+    for preferred_login in preferred_logins:
+        match = next(
+            (
+                entry for entry in github_users
+                if isinstance(entry.get("login"), str)
+                and str(entry["login"]).lower() == preferred_login.strip().lower()
+            ),
+            None,
+        )
+        if match is not None:
+            return match
+    return github_users[0] if github_users else None
+
+
 async def _push_to_remotes(
     repo_dir: Path,
     env: Dict[str, str],
@@ -1488,25 +1527,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "files": json.dumps(add_files),
     }
 
-    user_name = ""
-    user_email = ""
-    if git_user_selection:
-        listing = await _github_listing()
-        user_entry = next(
-            (
-                entry for entry in listing["github_users"]
-                if entry["login"].lower() == git_user_selection.lower()
-            ),
-            None,
-        )
-        if user_entry is None:
-            logs.append(_timestamped("Invalid Git user selection."))
-            return {"form_values": form_values, "success": False}
-        user_name = str(user_entry["name"]).strip()
-        user_email = str(user_entry["email"]).strip()
-        _log_debug(logs, f"Resolved GitHub user '{git_user_selection}' as '{user_name}'.")
-
-    _log_debug(logs, "Validated git user selection.")
     success = False
 
     if not repository_url:
@@ -1579,6 +1599,42 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         _log_debug(logs, "Branch A and Branch B are identical in merge mode.")
         logs.append(_timestamped("Branch A and Branch B must be different for merge mode."))
         return {"form_values": form_values, "success": False}
+
+    user_name = ""
+    user_email = ""
+    user_entry: Optional[Dict[str, object]] = None
+    requires_git_user = branch_mode not in {"revert_to_commit", "mirror_repository"}
+    if requires_git_user:
+        listing = await _github_listing()
+    if requires_git_user and git_user_selection:
+        user_entry = next(
+            (
+                entry for entry in listing["github_users"]
+                if entry["login"].lower() == git_user_selection.lower()
+            ),
+            None,
+        )
+        if user_entry is None:
+            logs.append(_timestamped("Invalid Git user selection."))
+            return {"form_values": form_values, "success": False}
+    elif requires_git_user:
+        user_entry = _auto_select_git_user(
+            repository_owner or _repository_owner(repository_url),
+            repository_name,
+            listing["github_users"],
+        )
+        if user_entry is None:
+            logs.append(_timestamped("No Git users are configured for automatic selection."))
+            return {"form_values": form_values, "success": False}
+        git_user_selection = str(user_entry["login"])
+        form_values["git_user_selection"] = git_user_selection
+
+    if user_entry is not None:
+        user_name = str(user_entry["name"]).strip()
+        user_email = str(user_entry["email"]).strip()
+        _log_debug(logs, f"Resolved GitHub user '{git_user_selection}' as '{user_name}'.")
+
+    _log_debug(logs, "Validated git user selection.")
 
     try:
         with _temporary_workspace(logs) as workdir:

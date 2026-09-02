@@ -8,6 +8,7 @@ from unittest import mock
 
 from backend.app import (
     CommandResult,
+    _auto_select_git_user,
     _github_accounts,
     _github_listing,
     _github_repositories,
@@ -24,6 +25,37 @@ from backend.git_webui.web.keys import GITHUB_REFRESH_TASK_KEY
 
 
 class GithubUsersTests(unittest.TestCase):
+    def test_auto_select_prefers_repository_owner(self) -> None:
+        users = [
+            {"login": "first", "name": "First", "email": "first@example.com"},
+            {"login": "Example", "name": "Owner", "email": "owner@example.com"},
+        ]
+        with mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
+            selected = _auto_select_git_user("example", "project", users)
+
+        self.assertIs(selected, users[1])
+
+    def test_auto_select_prefers_additional_repository_owner(self) -> None:
+        users = [
+            {"login": "source", "name": "Source", "email": "source@example.com"},
+            {"login": "destination", "name": "Destination", "email": "destination@example.com"},
+        ]
+        config = {
+            "repository_prefix_destinations": [["upstream-", "destination"]],
+            "git_user_defaults": [],
+        }
+        with mock.patch("backend.app.APP_CONFIG", config):
+            selected = _auto_select_git_user("source", "upstream-project", users)
+
+        self.assertIs(selected, users[1])
+
+    def test_auto_select_falls_back_to_first_configured_user(self) -> None:
+        users = [{"login": "first", "name": "First", "email": "first@example.com"}]
+        with mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
+            selected = _auto_select_git_user("unconfigured", "project", users)
+
+        self.assertIs(selected, users[0])
+
     def test_repository_url_is_built_from_owner_and_name(self) -> None:
         self.assertEqual(
             _github_repository_url("Example", "project"),
