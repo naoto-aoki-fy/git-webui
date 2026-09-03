@@ -4,8 +4,8 @@ A small web UI for applying a unified diff patch to a Git repository with `git a
 
 This repository currently contains:
 
-- **Backend** (`backend/app.py`): `aiohttp` server + SSE log stream and HTTP API that performs Git operations.
-- **Frontend** (`frontend/index.html`): single-file static UI that connects to the backend over Server-Sent Events (SSE) and HTTP.
+- **Backend** (`backend/git_webui/`): packaged `aiohttp` server, configuration, CLI, SSE log stream, and Git-operation HTTP API. `backend/app.py` is a small executable compatibility entry point.
+- **Frontend** (`frontend/`): static UI split into HTML, CSS, and JavaScript modules that connects to the backend over Server-Sent Events (SSE) and HTTP.
 - **Bookmarklet** (`bookmarklet/codex.js`): helper script to open the hosted frontend with pre-filled data from a Codex task page.
 
 ## Current capabilities
@@ -30,21 +30,24 @@ The UI supports these main workflows:
 Additional behavior:
 
 - Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list after the aiohttp server starts and on demand with the **Update GitHub users** button beside the Git Author field; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
-- Git author identity discovery from authenticated GitHub accounts. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The frontend defaults to **Auto-select**, which lets the backend choose the repository owner, the configured additional-push destination owner when a prefix matches, or the first configured account as a fallback. A specific author can still be selected explicitly.
+- Git author identity discovery from authenticated GitHub accounts for the commit-producing Default, Add File, and Orphan modes. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The frontend defaults to **Auto-select**, which lets the backend choose the repository owner, the configured additional-push destination owner when a prefix matches, or the first configured account as a fallback. A specific author can still be selected explicitly.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.
-- Customizable prompt generation service name and URL template, saved in local storage.
+- Customizable prompt generation URL template, plus a compatibility service-name setting, saved in local storage.
 - Direct commit-message suggestion generation through a browser-accessible OpenAI-compatible chat completions endpoint, with selectable JSON candidates.
 
 ## Repository structure
 
 ```text
-backend/app.py              # aiohttp backend server and git orchestration
-frontend/index.html         # static single-page UI
-bookmarklet/codex.js        # readable source bookmarklet script
-bookmarklet/codex-js-url.txt# URL-encoded bookmarklet payload
-config-sample.toml          # sample Git author default rule
-requirements.txt            # Python dependency list
+backend/app.py                 # compatibility executable entry point
+backend/git_webui/             # backend application, CLI, and settings package
+frontend/index.html            # static page markup
+frontend/styles.css            # frontend styles
+frontend/*.js                  # frontend application modules
+bookmarklet/codex.js           # readable bookmarklet source
+config-sample.toml             # sample backend configuration
+requirements.txt               # Python dependency list
+package.json / package-lock.json # Node test and build dependencies
 ```
 
 ## Requirements
@@ -135,7 +138,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - Query/hash parameters are supported for pre-filling fields.
 - Repositories are entered as separate GitHub owner and repository name fields; “Open on GitHub” links to the resulting repository and optional branch. Sync mode provides links for both repositories, can swap Repository A and Repository B before submission, and defaults to `git push --all` while allowing either one named branch or `git push --mirror` to be synchronized.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
-- The prompt generation link defaults to ChatGPT. Its service name and URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt.
+- The prompt generation link defaults to ChatGPT. Its URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt. The service-name setting is retained for compatibility but does not currently change the button label.
 - The OpenAI-compatible endpoint URL, authorization token, model, and candidate output format are configured in the frontend and saved in that browser's `localStorage`. Candidate generation supports NDJSON, FlatJSON as a single-level object via JSON mode (`json_object`), and JSON Structured Outputs (`json_schema`); the latter two require endpoint support for the corresponding `response_format`. FlatJSON uses `candidate_count`, `recommended_candidate_id`, and `candidate_N_*` scalar properties without arrays or nested objects. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
 - Additional top-level request parameters are stored as raw text in `git-webui.openAISettings` in that browser's `localStorage`. They must be a JSON object, such as `{"reasoning_effort":"none"}`; arrays and other JSON values are rejected.
 - Additional parameters cannot use the reserved keys `model`, `messages`, `stream`, or `response_format`, which are required by the candidate-generation and response-parsing contract. Available settings vary by OpenAI-compatible endpoint, and the endpoint may reject unsupported parameters.
@@ -144,16 +147,16 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 ## Bookmarklet
 
 - `bookmarklet/codex.js` is the readable source.
-- `bookmarklet/codex-js-url.txt` is the URL-encoded `javascript:` URL form.
-- The script currently targets `https://naoto-aoki-fy.github.io/git-webui/` as frontend base URL.
+- The Pages workflow minifies this source and injects its URL-encoded `javascript:` URL into the frontend artifact.
+- The script's frontend base URL is populated from the repository's configured GitHub Pages URL at build time, including custom domains and project paths.
 
 ## GitHub Pages deployment
 
-A GitHub Actions workflow deploys `frontend/` to GitHub Pages on pushes to `main` that change frontend files (or the workflow file).
+GitHub Actions runs the Python and Node.js test suites for pushes and pull requests. A separate Pages workflow runs when deployable assets change on `main`; it obtains the configured site URL with `actions/configure-pages`, builds the bookmarklet, uploads one artifact, and deploys that artifact once. Terser is installed reproducibly from the checked-in npm lockfile.
 
 ## Limitations and caveats
 
 - No authentication layer is built into the backend; run only in trusted environments.
 - GitHub operations use HTTPS and rely on the configured Git credential helper to choose credentials by repository owner; SSH remotes are rejected.
 - The backend keeps per-repository bare mirror caches under `--repo-root` and refreshes an existing cache from its remote before each operation. Every submission then uses its own temporary clone, so concurrent operations never share a Git index or working tree.
-- This is currently a lightweight single-file frontend + single Python backend, without a packaged release process.
+- This is currently a lightweight static frontend and Python backend, without a packaged release process.

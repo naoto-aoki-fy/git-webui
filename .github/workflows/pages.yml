@@ -6,6 +6,8 @@ on:
     paths:
       - "frontend/**"
       - "bookmarklet/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -34,24 +36,16 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install terser
-        run: npm install terser
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Initial upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          name: prebuild-pages
-          path: frontend
-
-      - name: Initial deploy to resolve page URL
-        id: deployment
-        uses: actions/deploy-pages@v4
-        with:
-          artifact_name: prebuild-pages
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
 
       - name: Build bookmarklet URL and inject into frontend
         env:
-          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          PAGE_URL: ${{ steps.pages.outputs.base_url }}
         run: |
           node - <<'NODE'
           const fs = require('fs');
@@ -88,11 +82,11 @@ jobs:
           });
           NODE
 
-      - name: Final upload artifact
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: frontend
 
-      - name: Final deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
         id: final_deployment
         uses: actions/deploy-pages@v4
