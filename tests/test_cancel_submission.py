@@ -24,7 +24,10 @@ class CancelSubmissionTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("backend.git_webui.application.process_submission", side_effect=wait_until_cancelled):
             submit = asyncio.create_task(self.client.post(
-                "/submit", json={"client_id": "test-client", "payload": {}},
+                "/submit", json={
+                    "client_id": "test-client",
+                    "payload": {"branch_mode": "default"},
+                },
             ))
             await asyncio.wait_for(started.wait(), timeout=1)
 
@@ -35,10 +38,8 @@ class CancelSubmissionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(cancel_response.status, 200)
         self.assertEqual(await cancel_response.json(), {"cancelled": True})
-        self.assertEqual(submit_response.status, 200)
-        self.assertEqual(
-            await submit_response.json(), {"accepted": True, "cancelled": True}
-        )
+        self.assertEqual(submit_response.status, 202)
+        self.assertEqual(await submit_response.json(), {"accepted": True})
 
     async def test_cancel_reports_when_no_submission_is_running(self) -> None:
         response = await self.client.post(

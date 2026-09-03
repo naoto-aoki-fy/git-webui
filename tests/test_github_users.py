@@ -197,6 +197,9 @@ class GithubUsersTests(unittest.TestCase):
             with mock.patch(
                 "backend.git_webui.application._github_accounts", mock.AsyncMock(return_value=(["new-user"], "new-user"))
             ) as accounts, mock.patch(
+                "backend.git_webui.application._github_tokens",
+                mock.AsyncMock(return_value={"new-user": "token"}),
+            ), mock.patch(
                 "backend.git_webui.application._github_user_profiles",
                 mock.AsyncMock(return_value=[{"id": 2, "login": "new-user", "name": "New", "email": "2+new-user@users.noreply.github.com"}]),
             ), mock.patch(

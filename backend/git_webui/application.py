@@ -13,13 +13,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Awaitable, Callable, Dict, List, Optional, Set, TypedDict
+from typing import Callable, Dict, List, Optional, Set, TypedDict
 import traceback
 
 from aiohttp import web
 
 from .settings import Settings
-from .web.keys import FORCED_PAYLOAD_KEY, FRONTEND_ROOT_KEY, GITHUB_REFRESH_TASK_KEY, SSE_CLIENTS_KEY, SUBMISSIONS_KEY
+from .web.keys import FRONTEND_ROOT_KEY, GITHUB_REFRESH_TASK_KEY, SSE_CLIENTS_KEY, SUBMISSIONS_KEY
 
 SSE_PATH = "/events"
 
@@ -28,6 +28,11 @@ DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
 GITHUB_CACHE_FILENAME = ".github-list-cache.json"
+SUBMISSION_MODES = {
+    "default", "add_file", "from_commit", "orphan", "revert_to_commit",
+    "merge_branches", "mirror_repository",
+}
+_MIRROR_CACHE_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
 @dataclass(frozen=True)
@@ -415,12 +420,12 @@ class GitCommandError(RuntimeError):
 @dataclass
 class LogSink:
     entries: List[str]
-    emit: Optional[Callable[[Dict[str, object]], Awaitable[None]]] = None
+    emit: Optional[Callable[[Dict[str, object]], None]] = None
 
     def append(self, message: str) -> None:
         self.entries.append(message)
         if self.emit is not None:
-            asyncio.create_task(self.emit({"type": "log", "line": message}))
+            self.emit({"type": "log", "line": message})
 
 
 async def run_command(
@@ -725,7 +730,7 @@ def _repo_workspace_for_url(repository_url: str) -> Path:
     return REPO_ROOT / f"{repo_name}-{digest}.git"
 
 
-async def _ensure_mirror_cache(
+async def _ensure_mirror_cache_unlocked(
     repository_url: str,
     env: Dict[str, str],
     logs: Optional[LogSink] = None,
@@ -774,6 +779,18 @@ async def _ensure_mirror_cache(
             shutil.rmtree(candidate)
 
 
+async def _ensure_mirror_cache(
+    repository_url: str,
+    env: Dict[str, str],
+    logs: Optional[LogSink] = None,
+) -> Path:
+    """Refresh a repository cache serially so concurrent requests cannot mutate it."""
+    cache_key = str(_repo_workspace_for_url(repository_url).resolve())
+    lock = _MIRROR_CACHE_LOCKS.setdefault(cache_key, asyncio.Lock())
+    async with lock:
+        return await _ensure_mirror_cache_unlocked(repository_url, env, logs)
+
+
 async def _clone_isolated_repository(
     repository_url: str,
     destination: Path,
@@ -798,11 +815,6 @@ async def _clone_isolated_repository(
     )
     if set_url_result.returncode != 0:
         raise RuntimeError("Failed to configure isolated repository origin")
-    fetch_result = await run_git_command(
-        "remote", "update", "--prune", cwd=destination, env=env, log=logs
-    )
-    if fetch_result.returncode != 0:
-        raise RuntimeError("Failed to refresh isolated repository clone")
 
 
 @contextmanager
@@ -884,16 +896,20 @@ async def _github_accounts(logs: Optional[LogSink] = None) -> tuple[List[str], O
 async def _github_repositories(
     github_users: List[str],
     logs: Optional[LogSink] = None,
+    tokens: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, str]]:
     """List repositories for each account without changing gh's active account."""
     repositories: List[Dict[str, str]] = []
     seen: Set[str] = set()
     for username in github_users:
-        token_result = await run_command("gh", "auth", "token", "--user", username)
-        if token_result.returncode != 0 or not token_result.stdout.strip():
-            raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+        token = tokens.get(username) if tokens is not None else None
+        if token is None:
+            token_result = await run_command("gh", "auth", "token", "--user", username)
+            if token_result.returncode != 0 or not token_result.stdout.strip():
+                raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+            token = token_result.stdout.strip()
         env = os.environ.copy()
-        env["GH_TOKEN"] = token_result.stdout.strip()
+        env["GH_TOKEN"] = token
         result = await run_command(
             "gh", "repo", "list", "--limit", "1000", "--json", "nameWithOwner", env=env, log=logs
         )
@@ -918,16 +934,20 @@ async def _github_repositories(
 
 
 async def _github_user_profiles(
-    github_users: List[str], logs: Optional[LogSink] = None
+    github_users: List[str], logs: Optional[LogSink] = None,
+    tokens: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, object]]:
     """Retrieve commit identities from GitHub for authenticated CLI accounts."""
     profiles: List[Dict[str, object]] = []
     for username in github_users:
-        token_result = await run_command("gh", "auth", "token", "--user", username)
-        if token_result.returncode != 0 or not token_result.stdout.strip():
-            raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+        token = tokens.get(username) if tokens is not None else None
+        if token is None:
+            token_result = await run_command("gh", "auth", "token", "--user", username)
+            if token_result.returncode != 0 or not token_result.stdout.strip():
+                raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+            token = token_result.stdout.strip()
         env = os.environ.copy()
-        env["GH_TOKEN"] = token_result.stdout.strip()
+        env["GH_TOKEN"] = token
         result = await run_command(
             "gh", "api", "user", "--jq", "{id: .id, login: .login, name: .name}",
             env=env, log=logs,
@@ -952,6 +972,17 @@ async def _github_user_profiles(
             }
         )
     return profiles
+
+
+async def _github_tokens(github_users: List[str]) -> Dict[str, str]:
+    tokens: Dict[str, str] = {}
+    for username in github_users:
+        result = await run_command("gh", "auth", "token", "--user", username)
+        token = result.stdout.strip()
+        if result.returncode != 0 or not token:
+            raise RuntimeError(f"Unable to retrieve GitHub token for {username}")
+        tokens[username] = token
+    return tokens
 
 
 def _github_cache_path() -> Path:
@@ -1017,8 +1048,9 @@ async def _github_listing(force_refresh: bool = False) -> Dict[str, object]:
             return cached
 
     github_accounts, active_user = await _github_accounts()
-    github_users = await _github_user_profiles(github_accounts)
-    repositories = await _github_repositories(github_accounts)
+    tokens = await _github_tokens(github_accounts)
+    github_users = await _github_user_profiles(github_accounts, tokens=tokens)
+    repositories = await _github_repositories(github_accounts, tokens=tokens)
     refreshed_at = datetime.now(UTC)
     payload: Dict[str, object] = {
         "github_users": github_users,
@@ -1616,19 +1648,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     if create_branch_result.returncode != 0:
                         raise RuntimeError("Failed to create branch")
                     _log_debug(logs, f"Branch '{branch}' created.")
-                else:
-                    _log_debug(logs, f"Pulling latest changes for branch '{branch}'.")
-                    pull_result = await run_git_command(
-                        "pull",
-                        "--ff-only",
-                        "origin",
-                        branch,
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if pull_result.returncode != 0:
-                        raise RuntimeError("git pull failed")
             if branch_mode == "add_file":
                 for add_file in add_files:
                     written_path = _write_repo_file(
@@ -1786,6 +1805,14 @@ async def _emit_to_client(app: web.Application, client_id: str, message: Dict[st
     await queue.put(message)
 
 
+def _queue_client_message(
+    app: web.Application, client_id: str, message: Dict[str, object]
+) -> None:
+    queue: Optional[asyncio.Queue[Dict[str, object]]] = app[SSE_CLIENTS_KEY].get(client_id)
+    if queue is not None:
+        queue.put_nowait(message)
+
+
 async def _read_json_payload(request: web.Request) -> Dict[str, object]:
     try:
         payload = await request.json()
@@ -1797,37 +1824,51 @@ async def _read_json_payload(request: web.Request) -> Dict[str, object]:
 
 
 async def submit_handler(request: web.Request) -> web.Response:
-    payload = request.get(FORCED_PAYLOAD_KEY)
-    if payload is None:
-        payload = await _read_json_payload(request)
+    payload = await _read_json_payload(request)
     form_data = payload.get("payload", {})
     client_id = str(payload.get("client_id", "")).strip()
     if not isinstance(form_data, dict):
         raise web.HTTPBadRequest(text="Invalid form payload")
     if not client_id:
         raise web.HTTPBadRequest(text="client_id is required")
+    branch_mode = str(form_data.get("branch_mode", ""))
+    if branch_mode not in SUBMISSION_MODES:
+        raise web.HTTPBadRequest(text="Invalid branch_mode")
 
-    submissions: Dict[str, asyncio.Task[Dict[str, object]]] = request.app[SUBMISSIONS_KEY]
+    submissions: Dict[str, asyncio.Task[None]] = request.app[SUBMISSIONS_KEY]
     existing = submissions.get(client_id)
     if existing is not None and not existing.done():
         raise web.HTTPConflict(text="A submission is already running for this client")
 
-    logs = LogSink(entries=[], emit=lambda message: _emit_to_client(request.app, client_id, message))
-    task = asyncio.create_task(process_submission(_normalize_form_payload(form_data), logs))
+    logs = LogSink(
+        entries=[],
+        emit=lambda message: _queue_client_message(request.app, client_id, message),
+    )
+
+    async def run_submission() -> None:
+        try:
+            result = await process_submission(_normalize_form_payload(form_data), logs)
+            await _emit_to_client(
+                request.app, client_id, {"type": "complete", "success": result["success"]}
+            )
+        except asyncio.CancelledError:
+            logs.append(_timestamped("Operation stopped by user."))
+            await _emit_to_client(
+                request.app, client_id,
+                {"type": "complete", "success": False, "cancelled": True},
+            )
+        except Exception as exc:
+            await _emit_to_client(
+                request.app, client_id,
+                {"type": "error", "message": f"Submission failed: {exc}"},
+            )
+        finally:
+            if submissions.get(client_id) is task:
+                del submissions[client_id]
+
+    task = asyncio.create_task(run_submission())
     submissions[client_id] = task
-    try:
-        result = await task
-    except asyncio.CancelledError:
-        logs.append(_timestamped("Operation stopped by user."))
-        await _emit_to_client(
-            request.app, client_id, {"type": "complete", "success": False, "cancelled": True}
-        )
-        return web.json_response({"accepted": True, "cancelled": True})
-    finally:
-        if submissions.get(client_id) is task:
-            del submissions[client_id]
-    await _emit_to_client(request.app, client_id, {"type": "complete", "success": result["success"]})
-    return web.json_response({"accepted": True})
+    return web.json_response({"accepted": True}, status=202)
 
 
 async def cancel_submission_handler(request: web.Request) -> web.Response:
@@ -1835,64 +1876,13 @@ async def cancel_submission_handler(request: web.Request) -> web.Response:
     client_id = str(payload.get("client_id", "")).strip()
     if not client_id:
         raise web.HTTPBadRequest(text="client_id is required")
-    task: Optional[asyncio.Task[Dict[str, object]]] = request.app[SUBMISSIONS_KEY].get(client_id)
+    task: Optional[asyncio.Task[None]] = request.app[SUBMISSIONS_KEY].get(client_id)
     if task is None or task.done():
         return web.json_response({"cancelled": False})
     task.cancel()
     return web.json_response({"cancelled": True})
 
 
-def _with_branch_mode(payload: Dict[str, object], branch_mode: str) -> Dict[str, object]:
-    merged = dict(payload)
-    form_payload = merged.get("payload", {})
-    if not isinstance(form_payload, dict):
-        raise web.HTTPBadRequest(text="Invalid form payload")
-    normalized_payload = dict(form_payload)
-    normalized_payload["branch_mode"] = branch_mode
-    merged["payload"] = normalized_payload
-    return merged
-
-
-async def submit_default_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "default")
-    return await submit_handler(request)
-
-
-async def submit_from_commit_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "from_commit")
-    return await submit_handler(request)
-
-
-async def submit_add_file_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "add_file")
-    return await submit_handler(request)
-
-
-async def submit_orphan_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "orphan")
-    return await submit_handler(request)
-
-
-async def submit_revert_to_commit_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "revert_to_commit")
-    return await submit_handler(request)
-
-
-async def submit_merge_branches_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "merge_branches")
-    return await submit_handler(request)
-
-
-async def submit_mirror_repository_handler(request: web.Request) -> web.Response:
-    payload = await _read_json_payload(request)
-    request[FORCED_PAYLOAD_KEY] = _with_branch_mode(payload, "mirror_repository")
-    return await submit_handler(request)
 
 
 async def config_handler(request: web.Request) -> web.Response:
@@ -1910,13 +1900,17 @@ async def config_handler(request: web.Request) -> web.Response:
         if refresh_error and cached is None:
             raise RuntimeError(refresh_error)
 
-        payload.update(
-            cached
-            if cached is not None
-            else await _github_listing(
-                force_refresh=force_refresh and not waited_for_startup_refresh
-            )
-        )
+        if cached is not None:
+            listing = cached
+        elif waited_for_startup_refresh:
+            listing = await _github_listing(force_refresh=False)
+        else:
+            task = refresh_state.get("task")
+            if task is None or task.done():
+                task = asyncio.create_task(_github_listing(force_refresh=force_refresh))
+                refresh_state["task"] = task
+            listing = await task
+        payload.update(listing)
         payload["git_users"] = payload["github_users"]
         if refresh_error:
             payload["github_users_error"] = refresh_error
@@ -1934,6 +1928,11 @@ async def health_handler(_: web.Request) -> web.Response:
 
 async def close_sse_clients(app: web.Application) -> None:
     app[SSE_CLIENTS_KEY].clear()
+    tasks = list(app[SUBMISSIONS_KEY].values())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def refresh_github_listing_after_server_start(app: web.Application) -> None:
@@ -1971,13 +1970,7 @@ def create_web_app(serve_frontend: bool = True) -> web.Application:
     app.on_shutdown.append(stop_github_listing_refresh)
     app.on_shutdown.append(close_sse_clients)
     app.router.add_route("GET", SSE_PATH, sse_handler)
-    app.router.add_route("POST", "/submit", submit_default_handler)
-    app.router.add_route("POST", "/submit/add_file", submit_add_file_handler)
-    app.router.add_route("POST", "/submit/from_commit", submit_from_commit_handler)
-    app.router.add_route("POST", "/submit/orphan", submit_orphan_handler)
-    app.router.add_route("POST", "/submit/revert_to_commit", submit_revert_to_commit_handler)
-    app.router.add_route("POST", "/submit/merge_branches", submit_merge_branches_handler)
-    app.router.add_route("POST", "/submit/mirror_repository", submit_mirror_repository_handler)
+    app.router.add_route("POST", "/submit", submit_handler)
     app.router.add_route("POST", "/submit/cancel", cancel_submission_handler)
     app.router.add_route("GET", "/config", config_handler)
     app.router.add_route("GET", "/health", health_handler)

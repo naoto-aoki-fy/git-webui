@@ -870,6 +870,8 @@
     const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
     const MAX_STORED_VALUES = 10;
     let logStream = null;
+    let logStreamPromise = null;
+    let logStreamGeneration = 0;
     let activeClientId = null;
     let githubRepositories = [];
     let draftSaveTimeout = null;
@@ -1125,19 +1127,44 @@
     };
 
     const connectEventStream = () => {
-        if (logStream && logStream.readyState === EventSource.OPEN) {
-            return;
+        if (logStream && logStream.readyState === EventSource.OPEN) return Promise.resolve();
+        if (logStream && logStream.readyState === EventSource.CONNECTING && logStreamPromise) {
+            return logStreamPromise;
         }
         if (!activeClientId) {
             activeClientId = createClientId();
         }
         const sseUrl = new URL(getBackendEndpointUrl("/events"));
         sseUrl.searchParams.set("client_id", activeClientId);
-        logStream = new EventSource(sseUrl.toString());
-        logStream.addEventListener("open", () => {
-            updateBackendStatus("connected", "connected");
+        if (logStream) logStream.close();
+        const generation = ++logStreamGeneration;
+        const stream = new EventSource(sseUrl.toString());
+        logStream = stream;
+        logStreamPromise = new Promise((resolve, reject) => {
+            const timeout = window.setTimeout(() => {
+                if (generation !== logStreamGeneration) return;
+                stream.close();
+                logStream = null;
+                reject(new Error("SSE connection timed out."));
+            }, 10000);
+            stream.addEventListener("open", () => {
+                if (generation !== logStreamGeneration) return;
+                window.clearTimeout(timeout);
+                updateBackendStatus("connected", "connected");
+                resolve();
+            }, { once: true });
+            stream.addEventListener("error", () => {
+                if (generation !== logStreamGeneration) return;
+                window.clearTimeout(timeout);
+                stream.close();
+                logStream = null;
+                reject(new Error("Unable to connect to the backend event stream."));
+            }, { once: true });
+        }).finally(() => {
+            if (generation === logStreamGeneration) logStreamPromise = null;
         });
-        logStream.addEventListener("error", () => {
+        stream.addEventListener("error", () => {
+            if (generation !== logStreamGeneration) return;
             if (manualDisconnect) {
                 updateBackendStatus("", "disconnected");
                 manualDisconnect = false;
@@ -1145,7 +1172,8 @@
             }
             updateBackendStatus("error", "disconnected");
         });
-        logStream.addEventListener("message", (event) => {
+        stream.addEventListener("message", (event) => {
+            if (generation !== logStreamGeneration) return;
             let payload;
             try {
                 payload = JSON.parse(event.data);
@@ -1155,13 +1183,17 @@
             }
             handleServerEvent(payload);
         });
+        return logStreamPromise;
     };
 
     const requestApi = async (method, path, payload = null) => {
+        const options = {method};
+        if (payload !== null) {
+            options.headers = { "Content-Type": "application/json" };
+            options.body = JSON.stringify(payload);
+        }
         const response = await fetch(getBackendEndpointUrl(path), {
-            method,
-            headers: { "Content-Type": "application/json" },
-            body: payload ? JSON.stringify(payload) : undefined,
+            ...options,
         });
         if (!response.ok) {
             throw new Error("Request failed: " + response.status);
@@ -1374,39 +1406,7 @@
         }, 200);
     };
 
-    const ensureEventStreamReady = () => new Promise((resolve) => {
-        if (logStream && logStream.readyState === EventSource.OPEN) {
-            resolve();
-            return;
-        }
-        connectEventStream();
-        if (!logStream) {
-            return;
-        }
-        logStream.addEventListener("open", () => resolve(), { once: true });
-    });
-
-    const getSubmitPathForMode = (branchMode) => {
-        if (branchMode === "add_file") {
-            return "/submit/add_file";
-        }
-        if (branchMode === "from_commit") {
-            return "/submit/from_commit";
-        }
-        if (branchMode === "orphan") {
-            return "/submit/orphan";
-        }
-        if (branchMode === "revert_to_commit") {
-            return "/submit/revert_to_commit";
-        }
-        if (branchMode === "merge_branches") {
-            return "/submit/merge_branches";
-        }
-        if (branchMode === "mirror_repository") {
-            return "/submit/mirror_repository";
-        }
-        return "/submit";
-    };
+    const ensureEventStreamReady = () => connectEventStream();
 
     const sendFormOverApi = async (payload, branchMode) => {
         await ensureEventStreamReady();
@@ -1415,10 +1415,8 @@
             if (logOutput) {
                 logOutput.textContent = "";
             }
-            await requestApi("POST", getSubmitPathForMode(branchMode), { payload, client_id: activeClientId });
-            if (isSubmitting) {
-                setProcessingState(false);
-            }
+            payload.branch_mode = branchMode;
+            await requestApi("POST", "/submit", { payload, client_id: activeClientId });
         } else {
             appendLogLine("[client] SSE connection not ready.");
             updateLogStatus(false);
@@ -1779,17 +1777,19 @@
         updateBackendStatus("", "connecting");
         if (logStream) {
             manualDisconnect = true;
+            logStreamGeneration += 1;
             logStream.close();
             logStream = null;
         }
         activeClientId = null;
-        connectEventStream();
+        void connectEventStream().catch(() => {});
         appendLogLine("[client] Using backend " + backendUrl);
     };
 
     const disconnectBackend = () => {
         manualDisconnect = true;
         if (logStream) {
+            logStreamGeneration += 1;
             logStream.close();
         } else {
             manualDisconnect = false;
@@ -2484,7 +2484,7 @@ ${format === "ndjson" ? "- recommended must be a boolean, and exactly one candid
     if (backendUrlField) {
         backendUrlField.value = initialBackend;
     }
-    connectEventStream();
+    void connectEventStream().catch(() => {});
 </script>
 </body>
 </html>
