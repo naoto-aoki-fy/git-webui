@@ -1742,16 +1742,19 @@ async def frontend_handler(request: web.Request) -> web.Response:
     return web.FileResponse(frontend_root / "index.html")
 
 
-async def frontend_script_handler(request: web.Request) -> web.Response:
+async def frontend_asset_handler(request: web.Request) -> web.Response:
     frontend_root = request.app[FRONTEND_ROOT_KEY]
     allowed = {
-        "openai-request-settings.js", "candidate-contract.js", "openai-candidate-provider.js",
-        "codex-app-server-client.js", "codex-candidate-provider.js", "commit-prompt.js",
+        "app.js", "backend-client.js", "candidate-contract.js",
+        "codex-app-server-client.js", "codex-candidate-provider.js",
+        "commit-generation.js", "commit-prompt.js", "draft-storage.js",
+        "form-mode.js", "openai-candidate-provider.js",
+        "openai-request-settings.js", "repository-fields.js", "styles.css",
     }
-    script = request.match_info["script"]
-    if script not in allowed:
+    asset = request.match_info["asset"]
+    if asset not in allowed:
         raise web.HTTPNotFound()
-    return web.FileResponse(frontend_root / script)
+    return web.FileResponse(frontend_root / asset)
 
 
 def _sse_payload(message: Dict[str, object]) -> str:
@@ -1981,7 +1984,7 @@ def create_web_app(serve_frontend: bool = True) -> web.Application:
         app[FRONTEND_ROOT_KEY] = frontend_root
         app.router.add_route("GET", "/", frontend_handler)
         app.router.add_route("GET", "/index.html", frontend_handler)
-        app.router.add_route("GET", "/{script:.+\\.js}", frontend_script_handler)
+        app.router.add_route("GET", "/{asset:.+\\.(?:js|css)}", frontend_asset_handler)
     else:
         app.router.add_route("GET", "/", sse_handler)
     return app
