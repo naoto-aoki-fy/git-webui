@@ -12,6 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
   pages: write
   id-token: write
@@ -41,11 +42,19 @@ jobs:
 
       - name: Configure GitHub Pages
         id: pages
+        if: ${{ vars.PAGE_URL == '' }}
         uses: actions/configure-pages@v5
+
+      - name: Save GitHub Pages URL
+        if: ${{ vars.PAGE_URL == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGE_URL: ${{ steps.pages.outputs.base_url }}
+        run: gh variable set PAGE_URL --body "$PAGE_URL"
 
       - name: Build bookmarklet URL and inject into frontend
         env:
-          PAGE_URL: ${{ steps.pages.outputs.base_url }}
+          PAGE_URL: ${{ vars.PAGE_URL || steps.pages.outputs.base_url }}
         run: |
           node - <<'NODE'
           const fs = require('fs');
