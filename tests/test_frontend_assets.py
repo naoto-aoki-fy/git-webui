@@ -148,6 +148,26 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn('"/config" + (forceRefresh ? "?refresh=1" : "")', html)
 
+    async def test_github_repositories_can_be_updated_beside_repository(self) -> None:
+        html = await self.frontend_source()
+
+        repository_group = html[
+            html.index('<div id="repository_group">'):
+            html.index('<div id="mirror_repository_group"')
+        ]
+        self.assertIn(
+            'id="update_github_repositories">Update GitHub repositories</button>',
+            repository_group,
+        )
+        self.assertIn(
+            'updateGithubRepositoriesButton.addEventListener("click", () => fetchConfig(true));',
+            html,
+        )
+        self.assertIn(
+            "const updateButtons = [updateGithubRepositoriesButton, updateGithubUsersButton].filter(Boolean);",
+            html,
+        )
+
     async def test_git_author_defaults_to_backend_auto_selection(self) -> None:
         html = await self.frontend_source()
 

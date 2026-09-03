@@ -29,7 +29,7 @@ The UI supports these main workflows:
 
 Additional behavior:
 
-- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list after the aiohttp server starts and on demand with the **Update GitHub users** button beside the Git Author field; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
+- Repository owner/name completion exclusively from `gh repo list` for every authenticated account; previously entered values are not included. GitHub usernames and repositories are cached under `--repo-root`. The backend retrieves the list after the aiohttp server starts and on demand with the **Update GitHub repositories** button beside the Repository field or the **Update GitHub users** button beside the Git Author field; it does not refresh the list on a timer. Repository discovery uses a per-user `GH_TOKEN` without changing the active GitHub CLI account.
 - Git author identity discovery from authenticated GitHub accounts for the commit-producing Default, Add File, and Orphan modes. GitHub supplies each user's ID and name, and commits use the corresponding GitHub pseudo-email address. The frontend defaults to **Auto-select**, which lets the backend choose the repository owner, the configured additional-push destination owner when a prefix matches, or the first configured account as a fallback. A specific author can still be selected explicitly.
 - Live operation logs streamed over SSE.
 - Frontend-side local storage for draft form values, branch history, and backend URL.

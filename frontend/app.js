@@ -58,6 +58,7 @@ const prMessageField = document.getElementById("pr_message");
 const openRepositoryButton = document.getElementById("open_repository");
 const openMirrorRepositoryButton = document.getElementById("open_mirror_repository");
 const swapMirrorRepositoriesButton = document.getElementById("swap_mirror_repositories");
+const updateGithubRepositoriesButton = document.getElementById("update_github_repositories");
 const updateGithubUsersButton = document.getElementById("update_github_users");
 const pastePatchButton = document.getElementById("paste_patch");
 const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
@@ -968,9 +969,13 @@ const fetchConfig = async (forceRefresh = false, preserveGitUser = false) => {
     const selectedGitUser = preserveGitUser && gitUserField && !gitUserField.hasAttribute("disabled")
         ? gitUserField.value
         : null;
-    if (forceRefresh && updateGithubUsersButton) {
-        updateGithubUsersButton.disabled = true;
-        updateGithubUsersButton.textContent = "Updating...";
+    const updateButtons = [updateGithubRepositoriesButton, updateGithubUsersButton].filter(Boolean);
+    if (forceRefresh) {
+        updateButtons.forEach((button) => {
+            button.disabled = true;
+            button.dataset.defaultLabel = button.textContent;
+            button.textContent = "Updating...";
+        });
     }
     try {
         const healthPayload = await requestApi("GET", "/health");
@@ -995,9 +1000,12 @@ const fetchConfig = async (forceRefresh = false, preserveGitUser = false) => {
         resetSelect(gitUserField, "(Unable to load Git users)");
         updateBackendStatus("error", "config error");
     } finally {
-        if (forceRefresh && updateGithubUsersButton) {
-            updateGithubUsersButton.disabled = false;
-            updateGithubUsersButton.textContent = "Update GitHub users";
+        if (forceRefresh) {
+            updateButtons.forEach((button) => {
+                button.disabled = false;
+                button.textContent = button.dataset.defaultLabel;
+                delete button.dataset.defaultLabel;
+            });
         }
     }
 };
@@ -1687,6 +1695,7 @@ initializeForm();
 form.addEventListener("input", scheduleDraftSave);
 form.addEventListener("change", scheduleDraftSave);
 updateGithubUsersButton.addEventListener("click", () => fetchConfig(true));
+updateGithubRepositoriesButton.addEventListener("click", () => fetchConfig(true));
 repositoryOwnerField.addEventListener("input", () => refreshRepositoryCompletions(repositoryOwnerField.value));
 repositoryField.addEventListener("focus", () => refreshRepositoryCompletions(repositoryOwnerField.value));
 if (mirrorRepositoryOwnerField && mirrorRepositoryField) {
