@@ -176,6 +176,22 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("applyDefaultGitUserForRepository", html)
         self.assertNotIn("confirmNonDefaultGitUser", html)
 
+    async def test_auto_selected_git_author_can_be_previewed(self) -> None:
+        html = await self.frontend_source()
+
+        git_author_group = html[
+            html.index('<div id="git_user_group">'):
+            html.index('<div id="commit_message_group">')
+        ]
+        self.assertIn('id="preview_git_user">Check Auto-select</button>', git_author_group)
+        self.assertIn('id="git_user_preview" aria-live="polite"', git_author_group)
+        self.assertIn(
+            'previewGitUserButton?.addEventListener("click", previewAutoSelectedGitUser);',
+            html,
+        )
+        self.assertIn('const destination = findAdditionalRepository();', html)
+        self.assertIn('preferredLogins.push(repositoryOwner);', html)
+
 
 if __name__ == "__main__":
     unittest.main()

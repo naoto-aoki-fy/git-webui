@@ -232,12 +232,14 @@
             <div class="field-header">
                 <label for="git_user">Git Author (Committer)</label>
                 <div class="field-header-actions">
+                    <button type="button" class="button secondary" id="preview_git_user">Check Auto-select</button>
                     <button type="button" class="button secondary" id="update_github_users">Update GitHub users</button>
                 </div>
             </div>
             <select id="git_user" name="git_user">
                 <option value="">Auto-select</option>
             </select>
+            <p class="subtle hidden" id="git_user_preview" aria-live="polite"></p>
         </div>
         <div id="commit_message_group">
             <div class="field-header">

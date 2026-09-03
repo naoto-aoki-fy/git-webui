@@ -60,6 +60,8 @@ const openMirrorRepositoryButton = document.getElementById("open_mirror_reposito
 const swapMirrorRepositoriesButton = document.getElementById("swap_mirror_repositories");
 const updateGithubRepositoriesButton = document.getElementById("update_github_repositories");
 const updateGithubUsersButton = document.getElementById("update_github_users");
+const previewGitUserButton = document.getElementById("preview_git_user");
+const gitUserPreview = document.getElementById("git_user_preview");
 const pastePatchButton = document.getElementById("paste_patch");
 const patchCjkIndicator = document.getElementById("patch_cjk_indicator");
 const openChatGPTButton = document.getElementById("open_chatgpt");
@@ -911,6 +913,41 @@ const normalizeRepository = RepositoryFields.normalize;
 const getRepositoryName = RepositoryFields.name;
 const getRepositoryOwner = RepositoryFields.owner;
 
+let configuredGitUsers = [];
+let configuredGitUserDefaults = [];
+
+const previewAutoSelectedGitUser = () => {
+    if (!gitUserPreview) {
+        return;
+    }
+    const repositoryOwner = repositoryOwnerField.value.trim();
+    const repositoryName = repositoryField.value.trim();
+    const preferredLogins = [];
+    const destination = findAdditionalRepository();
+    if (destination) {
+        preferredLogins.push(destination.owner);
+    }
+    const configuredDefault = configuredGitUserDefaults.find((entry) =>
+        entry && typeof entry.repository === "string" && entry.repository.trim()
+        && typeof entry.github_user === "string"
+        && repositoryName.toLowerCase().startsWith(entry.repository.trim().toLowerCase()));
+    if (configuredDefault) {
+        preferredLogins.push(configuredDefault.github_user);
+    }
+    preferredLogins.push(repositoryOwner);
+    const selectedUser = preferredLogins.reduce((selected, login) => selected || configuredGitUsers.find(
+        (entry) => entry.login.toLowerCase() === login.toLowerCase(),
+    ), null) || configuredGitUsers[0];
+
+    gitUserPreview.classList.remove("hidden");
+    if (!selectedUser) {
+        gitUserPreview.textContent = "Auto-select result: no Git users are configured.";
+        return;
+    }
+    gitUserPreview.textContent = "Auto-select result: " + selectedUser.name + " <" + selectedUser.email
+        + "> (@" + selectedUser.login + ")";
+};
+
 const findAdditionalRepository = () => {
     const repositoryName = repositoryField.value.trim();
     const normalizedName = repositoryName.toLowerCase();
@@ -945,23 +982,27 @@ const populateConfig = (payload) => {
         : [];
     refreshRepositoryCompletions();
     const gitUsers = Array.isArray(payload.git_users) ? payload.git_users : [];
+    configuredGitUsers = gitUsers.filter((entry) => entry && typeof entry.login === "string"
+        && typeof entry.name === "string" && typeof entry.email === "string");
     repositoryPrefixDestinations = Array.isArray(payload.repository_prefix_destinations)
         ? payload.repository_prefix_destinations : [];
+    configuredGitUserDefaults = Array.isArray(payload.git_user_defaults) ? payload.git_user_defaults : [];
     gitUserField.innerHTML = "";
     const autoOption = document.createElement("option");
     autoOption.value = "";
     autoOption.textContent = "Auto-select";
     gitUserField.appendChild(autoOption);
-    if (gitUsers.length === 0) {
+    if (configuredGitUsers.length === 0) {
         autoOption.textContent = "Auto-select (no Git users configured)";
     } else {
-        gitUsers.forEach((entry) => {
+        configuredGitUsers.forEach((entry) => {
             const option = document.createElement("option");
             option.value = entry.login;
             option.textContent = entry.name + " <" + entry.email + "> (@" + entry.login + ")";
             gitUserField.appendChild(option);
         });
     }
+    gitUserPreview?.classList.add("hidden");
     autofillSyncDestination();
 };
 
@@ -1696,6 +1737,10 @@ form.addEventListener("input", scheduleDraftSave);
 form.addEventListener("change", scheduleDraftSave);
 updateGithubUsersButton.addEventListener("click", () => fetchConfig(true));
 updateGithubRepositoriesButton.addEventListener("click", () => fetchConfig(true));
+previewGitUserButton?.addEventListener("click", previewAutoSelectedGitUser);
+gitUserField.addEventListener("change", () => gitUserPreview?.classList.add("hidden"));
+repositoryOwnerField.addEventListener("input", () => gitUserPreview?.classList.add("hidden"));
+repositoryField.addEventListener("input", () => gitUserPreview?.classList.add("hidden"));
 repositoryOwnerField.addEventListener("input", () => refreshRepositoryCompletions(repositoryOwnerField.value));
 repositoryField.addEventListener("focus", () => refreshRepositoryCompletions(repositoryOwnerField.value));
 if (mirrorRepositoryOwnerField && mirrorRepositoryField) {
