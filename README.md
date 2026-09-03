@@ -152,7 +152,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 
 ## GitHub Pages deployment
 
-GitHub Actions runs the Python and Node.js test suites for pushes and pull requests. A separate Pages workflow runs when deployable assets change on `main`. It uses the `PAGE_URL` repository variable when available; otherwise, it obtains the configured site URL with `actions/configure-pages` and saves it as `PAGE_URL` for later runs. The workflow then builds the bookmarklet, uploads one artifact, and deploys that artifact once. Terser is installed reproducibly from the checked-in npm lockfile.
+GitHub Actions runs the Python and Node.js test suites for pushes and pull requests. A separate Pages workflow runs when deployable assets change on `main`. It obtains the configured site URL directly from `actions/configure-pages` on every run, without reading or writing repository variables. The workflow then builds the bookmarklet, uploads one artifact, and deploys that artifact once. Terser is installed reproducibly from the checked-in npm lockfile.
 
 ## Limitations and caveats
 
