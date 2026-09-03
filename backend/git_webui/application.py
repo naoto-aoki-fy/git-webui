@@ -167,6 +167,7 @@ class LineEndingSnapshot:
     path: Path
     line_ending: str
     is_text: bool
+    line_endings: tuple[bytes, ...] = ()
 
 
 def _normalize_bytes_to_lf(data: bytes) -> bytes:
@@ -189,6 +190,11 @@ def _detect_line_ending(data: bytes) -> str:
     if crlf_count or lf_count or cr_count:
         return "mixed"
     return "none"
+
+
+def _line_endings(data: bytes) -> tuple[bytes, ...]:
+    """Return each line terminator in its original order."""
+    return tuple(match.group(0) for match in re.finditer(rb"\r\n|\r|\n", data))
 
 
 def _parse_patch_path_token(token: str) -> str:
@@ -312,6 +318,7 @@ def _line_ending_snapshots(repo_dir: Path, patch_content: str) -> List[LineEndin
                 path=file_path,
                 line_ending=_detect_line_ending(data),
                 is_text=b"\0" not in data,
+                line_endings=_line_endings(data),
             )
         )
     return snapshots
@@ -337,7 +344,23 @@ def _restore_original_line_endings(snapshots: List[LineEndingSnapshot]) -> None:
         if snapshot.line_ending not in {"crlf", "cr", "mixed"}:
             continue
         lf_data = _normalize_bytes_to_lf(snapshot.path.read_bytes())
-        if snapshot.line_ending == "cr":
+        if snapshot.line_ending == "mixed":
+            lines = lf_data.splitlines(keepends=True)
+            restored_parts: List[bytes] = []
+            ending_index = 0
+            for line in lines:
+                if line.endswith(b"\n"):
+                    ending = (
+                        snapshot.line_endings[ending_index]
+                        if ending_index < len(snapshot.line_endings)
+                        else b"\n"
+                    )
+                    restored_parts.append(line[:-1] + ending)
+                    ending_index += 1
+                else:
+                    restored_parts.append(line)
+            restored = b"".join(restored_parts)
+        elif snapshot.line_ending == "cr":
             restored = lf_data.replace(b"\n", b"\r")
         else:
             restored = lf_data.replace(b"\n", b"\r\n")
@@ -576,23 +599,6 @@ async def _resolve_branch_creation_base(
         _log_debug(logs, f"Resolved base branch '{base}' to '{resolved}'.")
         return resolved
     return base
-
-
-async def _remote_has_branches(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> bool:
-    result = await run_git_command(
-        "for-each-ref",
-        "--format=%(refname:short)",
-        "refs/remotes/origin/",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("Failed to list remote branches")
-    return any(
-        line.strip() and line.strip() != "origin/HEAD"
-        for line in result.stdout.splitlines()
-    )
 
 
 async def _resolve_default_branch(repo_dir: Path, env: Dict[str, str], logs: Optional[LogSink] = None) -> str:
@@ -1603,7 +1609,7 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     user_name = ""
     user_email = ""
     user_entry: Optional[Dict[str, object]] = None
-    requires_git_user = branch_mode not in {"revert_to_commit", "mirror_repository"}
+    requires_git_user = branch_mode in {"default", "add_file", "orphan"}
     if requires_git_user:
         listing = await _github_listing()
     if requires_git_user and git_user_selection:
@@ -1671,64 +1677,31 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 success = True
                 return {"form_values": form_values, "success": success}
 
-            default_branch = ""
             logs.append(_timestamped(f"Creating isolated repository clone for {repository_url}"))
             await _clone_isolated_repository(repository_url, repo_dir, env, logs)
-            if branch_mode == "orphan" and not await _remote_has_branches(repo_dir, env, logs):
-                _log_debug(logs, "Origin has no branches; skipping default branch resolution for orphan creation.")
+            if user_name:
+                _log_debug(logs, "Configuring git user.name.")
+                config_result = await run_git_command(
+                    "config", "--local", "user.name", user_name,
+                    cwd=repo_dir, env=env, log=logs,
+                )
+                if config_result.returncode != 0:
+                    raise RuntimeError("Failed to set git user.name")
+                _log_debug(logs, "git user.name configured.")
 
-            if branch_mode == "merge_branches":
-                _log_debug(logs, "Merge mode selected; unsetting local git user.name/user.email.")
-                for config_key in ("user.name", "user.email"):
-                    unset_result = await run_git_command(
-                        "config",
-                        "--local",
-                        "--unset-all",
-                        config_key,
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if unset_result.returncode not in {0, 5}:
-                        raise RuntimeError(f"Failed to unset git {config_key}")
-            else:
-                if user_name:
-                    _log_debug(logs, "Configuring git user.name.")
-                    config_result = await run_git_command(
-                        "config",
-                        "--local",
-                        "user.name",
-                        user_name,
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if config_result.returncode != 0:
-                        raise RuntimeError("Failed to set git user.name")
-                    _log_debug(logs, "git user.name configured.")
-
-                if user_email:
-                    _log_debug(logs, "Configuring git user.email.")
-                    config_result = await run_git_command(
-                        "config",
-                        "--local",
-                        "user.email",
-                        user_email,
-                        cwd=repo_dir,
-                        env=env,
-                        log=logs,
-                    )
-                    if config_result.returncode != 0:
-                        raise RuntimeError("Failed to set git user.email")
-                    _log_debug(logs, "git user.email configured.")
-
-            if branch_mode in {"default", "add_file"} and not branch:
-                default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
-                branch = default_branch
+            if user_email:
+                _log_debug(logs, "Configuring git user.email.")
+                config_result = await run_git_command(
+                    "config", "--local", "user.email", user_email,
+                    cwd=repo_dir, env=env, log=logs,
+                )
+                if config_result.returncode != 0:
+                    raise RuntimeError("Failed to set git user.email")
+                _log_debug(logs, "git user.email configured.")
 
             if branch_mode == "from_commit":
                 if not base_commit or base_commit.upper() == "HEAD":
-                    default_branch = default_branch or await _resolve_default_branch(repo_dir, env, logs)
+                    default_branch = await _resolve_default_branch(repo_dir, env, logs)
                     base_commit = f"origin/{default_branch}"
                     logs.append(_timestamped(f"Using {base_commit} as the base for branch creation."))
                     _log_debug(logs, f"Resolved base commit to '{base_commit}' for branch creation.")
@@ -1912,26 +1885,6 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                     )
                     if pull_result.returncode != 0:
                         raise RuntimeError("git pull failed")
-            else:
-                _log_debug(logs, "No branch specified; using default branch.")
-                await run_git_command(
-                    "status",
-                    "-sb",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                _log_debug(logs, "Pulling latest changes for default branch.")
-                pull_result = await run_git_command(
-                    "pull",
-                    "--ff-only",
-                    cwd=repo_dir,
-                    env=env,
-                    log=logs,
-                )
-                if pull_result.returncode != 0:
-                    raise RuntimeError("git pull failed")
-
             if branch_mode == "add_file":
                 for add_file in add_files:
                     written_path = _write_repo_file(

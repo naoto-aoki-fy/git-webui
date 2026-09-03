@@ -160,10 +160,7 @@ class OrphanEmptyRepoTests(unittest.TestCase):
                 )
 
             self.assertTrue(result["success"], "\n".join(logs.entries))
-            self.assertIn(
-                "Origin has no branches; skipping default branch resolution for orphan creation.",
-                "\n".join(logs.entries),
-            )
+            github_listing.assert_awaited_once()
             verify = subprocess.run(
                 ["git", "ls-remote", "--heads", repository_url, "first-branch"],
                 check=True,

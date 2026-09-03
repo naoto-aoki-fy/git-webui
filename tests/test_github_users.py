@@ -8,6 +8,7 @@ from unittest import mock
 
 from backend.app import (
     CommandResult,
+    LogSink,
     _auto_select_git_user,
     _github_accounts,
     _github_listing,
@@ -19,12 +20,41 @@ from backend.app import (
     _write_github_cache,
     config_handler,
     create_app,
+    process_submission,
     server_started,
 )
 from backend.git_webui.web.keys import GITHUB_REFRESH_TASK_KEY
 
 
 class GithubUsersTests(unittest.TestCase):
+    def test_non_committing_modes_do_not_load_github_users_or_configure_author(self) -> None:
+        forms = (
+            {"repository_url": "https://github.com/example/repo.git", "branch_mode": "from_commit", "base_commit": "abc123", "new_branch": "topic"},
+            {"repository_url": "https://github.com/example/repo.git", "branch_mode": "merge_branches", "branch": "main", "new_branch": "topic"},
+        )
+        for form in forms:
+            with self.subTest(branch_mode=form["branch_mode"]):
+                async def run_git(*args, **kwargs):
+                    return CommandResult(1 if args[:2] == ("ls-remote", "--exit-code") else 0, "", "")
+
+                command = mock.AsyncMock(side_effect=run_git)
+                listing = mock.AsyncMock(side_effect=AssertionError("GitHub users are not needed"))
+                logs = LogSink([])
+                with (
+                    mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": []}),
+                    mock.patch("backend.app._github_listing", listing),
+                    mock.patch("backend.app._clone_isolated_repository", mock.AsyncMock()),
+                    mock.patch("backend.app.run_git_command", command),
+                ):
+                    result = asyncio.run(process_submission(form, logs))
+
+                self.assertTrue(result["success"], "\n".join(logs.entries))
+                listing.assert_not_awaited()
+                self.assertFalse(any(
+                    call.args[:2] == ("config", "--local")
+                    for call in command.await_args_list
+                ))
+
     def test_auto_select_prefers_repository_owner(self) -> None:
         users = [
             {"login": "first", "name": "First", "email": "first@example.com"},

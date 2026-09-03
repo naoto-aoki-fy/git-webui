@@ -1213,7 +1213,7 @@
 
     const renderStoredOptions = (values, datalist) => {
         if (datalist) {
-            datalist.innerHTML = values.map((value) => "<option value=\"" + value + "\"></option>").join("");
+            datalist.replaceChildren(...values.map((value) => new Option(value, value)));
         }
     };
 
