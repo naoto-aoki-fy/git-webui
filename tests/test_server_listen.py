@@ -1,6 +1,6 @@
 import unittest
 
-from backend.app import DEFAULT_BIND, DEFAULT_PORT, _resolve_server_listen_config
+from backend.git_webui.application import DEFAULT_BIND, DEFAULT_PORT, _resolve_server_listen_config
 
 
 class ServerListenConfigTest(unittest.TestCase):

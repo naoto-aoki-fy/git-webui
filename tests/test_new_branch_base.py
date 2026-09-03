@@ -2,8 +2,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend import app
-from backend.app import CommandResult
+from backend.git_webui import application as app
+from backend.git_webui.application import CommandResult
 
 
 class NewBranchBaseTest(unittest.IsolatedAsyncioTestCase):

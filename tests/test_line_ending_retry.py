@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from backend.app import LogSink, _apply_patch_with_line_ending_retry
+from backend.git_webui.application import LogSink, _apply_patch_with_line_ending_retry
 
 
 class LineEndingRetryTests(unittest.TestCase):

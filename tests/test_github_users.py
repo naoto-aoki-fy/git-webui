@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest import mock
 
-from backend.app import (
+from backend.git_webui.application import (
     CommandResult,
     LogSink,
     _auto_select_git_user,
@@ -19,10 +19,10 @@ from backend.app import (
     _repository_owner,
     _write_github_cache,
     config_handler,
-    create_app,
     process_submission,
     server_started,
 )
+from backend.git_webui import create_app
 from backend.git_webui.web.keys import GITHUB_REFRESH_TASK_KEY
 
 
@@ -41,10 +41,10 @@ class GithubUsersTests(unittest.TestCase):
                 listing = mock.AsyncMock(side_effect=AssertionError("GitHub users are not needed"))
                 logs = LogSink([])
                 with (
-                    mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": []}),
-                    mock.patch("backend.app._github_listing", listing),
-                    mock.patch("backend.app._clone_isolated_repository", mock.AsyncMock()),
-                    mock.patch("backend.app.run_git_command", command),
+                    mock.patch("backend.git_webui.application.APP_CONFIG", {"repository_prefix_destinations": []}),
+                    mock.patch("backend.git_webui.application._github_listing", listing),
+                    mock.patch("backend.git_webui.application._clone_isolated_repository", mock.AsyncMock()),
+                    mock.patch("backend.git_webui.application.run_git_command", command),
                 ):
                     result = asyncio.run(process_submission(form, logs))
 
@@ -60,7 +60,7 @@ class GithubUsersTests(unittest.TestCase):
             {"login": "first", "name": "First", "email": "first@example.com"},
             {"login": "Example", "name": "Owner", "email": "owner@example.com"},
         ]
-        with mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
+        with mock.patch("backend.git_webui.application.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
             selected = _auto_select_git_user("example", "project", users)
 
         self.assertIs(selected, users[1])
@@ -74,14 +74,14 @@ class GithubUsersTests(unittest.TestCase):
             "repository_prefix_destinations": [["upstream-", "destination"]],
             "git_user_defaults": [],
         }
-        with mock.patch("backend.app.APP_CONFIG", config):
+        with mock.patch("backend.git_webui.application.APP_CONFIG", config):
             selected = _auto_select_git_user("source", "upstream-project", users)
 
         self.assertIs(selected, users[1])
 
     def test_auto_select_falls_back_to_first_configured_user(self) -> None:
         users = [{"login": "first", "name": "First", "email": "first@example.com"}]
-        with mock.patch("backend.app.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
+        with mock.patch("backend.git_webui.application.APP_CONFIG", {"repository_prefix_destinations": [], "git_user_defaults": []}):
             selected = _auto_select_git_user("unconfigured", "project", users)
 
         self.assertIs(selected, users[0])
@@ -108,7 +108,7 @@ class GithubUsersTests(unittest.TestCase):
             ]}}),
             "",
         )
-        with mock.patch("backend.app.run_command", mock.AsyncMock(return_value=response)):
+        with mock.patch("backend.git_webui.application.run_command", mock.AsyncMock(return_value=response)):
             users, active = asyncio.run(_github_accounts())
         self.assertEqual(users, ["octocat", "work-user"])
         self.assertEqual(active, "work-user")
@@ -120,7 +120,7 @@ class GithubUsersTests(unittest.TestCase):
             CommandResult(0, "work-token\n", ""),
             CommandResult(0, json.dumps([{"nameWithOwner": "Work/secret"}]), ""),
         ])
-        with mock.patch("backend.app.run_command", command):
+        with mock.patch("backend.git_webui.application.run_command", command):
             repositories = asyncio.run(_github_repositories(["octocat", "work-user"]))
 
         self.assertEqual(
@@ -138,7 +138,7 @@ class GithubUsersTests(unittest.TestCase):
             CommandResult(0, "token\n", ""),
             CommandResult(0, json.dumps({"id": 42, "login": "octocat", "name": "The Octocat"}), ""),
         ])
-        with mock.patch("backend.app.run_command", command):
+        with mock.patch("backend.git_webui.application.run_command", command):
             profiles = asyncio.run(_github_user_profiles(["octocat"]))
 
         self.assertEqual(profiles, [{
@@ -151,7 +151,7 @@ class GithubUsersTests(unittest.TestCase):
 
     def test_repository_listing_fails_when_user_token_is_unavailable(self) -> None:
         command = mock.AsyncMock(return_value=CommandResult(1, "", "failed"))
-        with mock.patch("backend.app.run_command", command):
+        with mock.patch("backend.git_webui.application.run_command", command):
             with self.assertRaisesRegex(RuntimeError, "Unable to retrieve GitHub token"):
                 asyncio.run(_github_repositories(["octocat"]))
 
@@ -162,8 +162,8 @@ class GithubUsersTests(unittest.TestCase):
             "github_repositories": [{"owner": "octocat", "name": "hello"}],
         }
         with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
-            "backend.app.REPO_ROOT", Path(tmpdir)
-        ), mock.patch("backend.app.run_command", mock.AsyncMock()) as command:
+            "backend.git_webui.application.REPO_ROOT", Path(tmpdir)
+        ), mock.patch("backend.git_webui.application.run_command", mock.AsyncMock()) as command:
             _write_github_cache(payload, datetime.now(UTC))
             listing = asyncio.run(_github_listing())
 
@@ -179,7 +179,7 @@ class GithubUsersTests(unittest.TestCase):
             "github_repositories": [],
         }
         with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
-            "backend.app.REPO_ROOT", Path(tmpdir)
+            "backend.git_webui.application.REPO_ROOT", Path(tmpdir)
         ):
             _write_github_cache(payload, refreshed_at)
             self.assertIsNotNone(_read_github_cache())
@@ -191,16 +191,16 @@ class GithubUsersTests(unittest.TestCase):
             "github_repositories": [],
         }
         with tempfile.TemporaryDirectory() as tmpdir, mock.patch(
-            "backend.app.REPO_ROOT", Path(tmpdir)
+            "backend.git_webui.application.REPO_ROOT", Path(tmpdir)
         ):
             _write_github_cache(old_payload, datetime.now(UTC))
             with mock.patch(
-                "backend.app._github_accounts", mock.AsyncMock(return_value=(["new-user"], "new-user"))
+                "backend.git_webui.application._github_accounts", mock.AsyncMock(return_value=(["new-user"], "new-user"))
             ) as accounts, mock.patch(
-                "backend.app._github_user_profiles",
+                "backend.git_webui.application._github_user_profiles",
                 mock.AsyncMock(return_value=[{"id": 2, "login": "new-user", "name": "New", "email": "2+new-user@users.noreply.github.com"}]),
             ), mock.patch(
-                "backend.app._github_repositories",
+                "backend.git_webui.application._github_repositories",
                 mock.AsyncMock(return_value=[{"owner": "new-user", "name": "project"}]),
             ):
                 listing = asyncio.run(_github_listing(force_refresh=True))
@@ -212,7 +212,7 @@ class GithubUsersTests(unittest.TestCase):
         async def exercise() -> None:
             app = create_app(serve_frontend=False)
             with mock.patch(
-                "backend.app._github_listing", mock.AsyncMock(return_value={})
+                "backend.git_webui.application._github_listing", mock.AsyncMock(return_value={})
             ) as listing:
                 with mock.patch("builtins.print") as output:
                     server_started(app, "Listening")
@@ -240,7 +240,7 @@ class GithubUsersTests(unittest.TestCase):
                     return refreshed_listing
                 return refreshed_listing
 
-            with mock.patch("backend.app._github_listing", mock.AsyncMock(side_effect=listing)) as github_listing:
+            with mock.patch("backend.git_webui.application._github_listing", mock.AsyncMock(side_effect=listing)) as github_listing:
                 server_started(app, "Listening")
                 await refresh_started.wait()
                 request = mock.Mock()

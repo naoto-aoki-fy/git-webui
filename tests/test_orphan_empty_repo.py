@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend import app
-from backend.app import LogSink, _repo_workspace_for_url, process_submission
+from backend.git_webui import application as app
+from backend.git_webui.application import LogSink, _repo_workspace_for_url, process_submission
 
 
 class OrphanEmptyRepoTests(unittest.TestCase):

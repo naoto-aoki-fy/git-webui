@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend import app
-from backend.app import CommandResult, LogSink
+from backend.git_webui import application as app
+from backend.git_webui.application import CommandResult, LogSink
 
 
 class HardResetValidationTests(unittest.TestCase):

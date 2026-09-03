@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from backend.app import create_app
+from backend.git_webui import create_app
 
 
 class CancelSubmissionTests(unittest.IsolatedAsyncioTestCase):
@@ -22,7 +22,7 @@ class CancelSubmissionTests(unittest.IsolatedAsyncioTestCase):
             started.set()
             await asyncio.Event().wait()
 
-        with patch("backend.app.process_submission", side_effect=wait_until_cancelled):
+        with patch("backend.git_webui.application.process_submission", side_effect=wait_until_cancelled):
             submit = asyncio.create_task(self.client.post(
                 "/submit", json={"client_id": "test-client", "payload": {}},
             ))

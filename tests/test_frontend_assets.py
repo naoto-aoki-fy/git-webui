@@ -2,7 +2,7 @@ import unittest
 
 from aiohttp.test_utils import TestClient, TestServer
 
-from backend.app import create_app
+from backend.git_webui import create_app
 
 
 class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):

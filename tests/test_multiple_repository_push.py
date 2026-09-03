@@ -4,8 +4,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import backend.app as app
-from backend.app import CommandResult, LogSink, _additional_repository, _load_config, _push_to_remotes
+from backend.git_webui import application as app
+from backend.git_webui.application import CommandResult, LogSink, _additional_repository, _push_to_remotes
+from backend.git_webui.settings import Settings
 
 
 class MultipleRepositoryPushTests(unittest.TestCase):
@@ -14,8 +15,8 @@ class MultipleRepositoryPushTests(unittest.TestCase):
             path = Path(directory) / "config.toml"
             path.write_text('repository_prefix_destinations = [["source-", "target-user"]]\n')
             self.assertEqual(
-                _load_config(path)["repository_prefix_destinations"],
-                [["source-", "target-user"]],
+                Settings.load(config_path=path).repository_prefix_destinations,
+                (("source-", "target-user"),),
             )
 
     def test_prefix_is_removed_to_derive_destination_name(self):

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 import os
@@ -9,7 +8,6 @@ import shlex
 import shutil
 import tempfile
 import secrets
-import tomllib
 import hashlib
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -50,46 +48,7 @@ GIT_COMMON_OPTIONS = ("-c", "core.hooksPath=" + DEVNULL)
 KEEP_TEMP = False
 DEFAULT_REPO_ROOT = Path("repos")
 REPO_ROOT = DEFAULT_REPO_ROOT.expanduser()
-CONFIG_PATH = DEFAULT_CONFIG_PATH
 RUNTIME_SETTINGS: Settings | None = None
-
-def _load_config(config_path: Path) -> Dict[str, object]:
-    if not config_path.exists():
-        return {"repository_prefix_destinations": [], "git_user_defaults": []}
-
-    with config_path.open("rb") as config_file:
-        try:
-            data = tomllib.load(config_file)
-        except tomllib.TOMLDecodeError as exc:  # noqa: BLE001
-            raise RuntimeError(f"Failed to parse configuration file {config_path}: {exc}") from exc
-
-    git_user_defaults = data.get("git_user_defaults", [])
-    if not isinstance(git_user_defaults, list):
-        raise RuntimeError("Configuration file must define 'git_user_defaults' as a list")
-    for entry in git_user_defaults:
-        if (
-            not isinstance(entry, dict)
-            or not isinstance(entry.get("repository"), str)
-            or not isinstance(entry.get("github_user"), str)
-        ):
-            raise RuntimeError("Each git_user_defaults entry must define repository and github_user")
-
-    destinations = data.get("repository_prefix_destinations", [])
-    if not isinstance(destinations, list):
-        raise RuntimeError("Configuration file must define 'repository_prefix_destinations' as an array of pairs")
-    for entry in destinations:
-        if (
-            not isinstance(entry, list)
-            or len(entry) != 2
-            or not all(isinstance(value, str) and value.strip() for value in entry)
-        ):
-            raise RuntimeError("Each repository_prefix_destinations entry must be a [prefix, destination_owner] pair")
-
-    return {
-        "repository_prefix_destinations": destinations,
-        # Kept in the response during the deprecation period for old clients.
-        "git_user_defaults": git_user_defaults,
-    }
 
 
 APP_CONFIG = {"repository_prefix_destinations": [], "git_user_defaults": []}
@@ -97,9 +56,8 @@ APP_CONFIG = {"repository_prefix_destinations": [], "git_user_defaults": []}
 
 def configure(settings: Settings) -> None:
     """Install settings for legacy workflow functions during staged extraction."""
-    global APP_CONFIG, CONFIG_PATH, KEEP_TEMP, REPO_ROOT, RUNTIME_SETTINGS
+    global APP_CONFIG, KEEP_TEMP, REPO_ROOT, RUNTIME_SETTINGS
     RUNTIME_SETTINGS = settings
-    CONFIG_PATH = settings.config_path
     REPO_ROOT = settings.repository_root
     KEEP_TEMP = settings.keep_temporary_workspaces
     APP_CONFIG = {
@@ -714,160 +672,6 @@ async def _delete_all_local_branches(
             raise RuntimeError(f"Failed to delete branch {branch}")
 
 
-async def _reset_cached_repo_state(
-    repo_dir: Path,
-    env: Dict[str, str],
-    logs: Optional[LogSink],
-    default_branch: str,
-    target_branch: Optional[str],
-) -> None:
-    _log_debug(logs, "Pre-cleaning cached repository state before switching branches.")
-    reset_before_result = await run_git_command(
-        "reset",
-        "--hard",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if reset_before_result.returncode != 0:
-        raise RuntimeError("git reset --hard failed before orphan switch")
-    clean_before_result = await run_git_command(
-        "clean",
-        "-fd",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if clean_before_result.returncode != 0:
-        raise RuntimeError("git clean -fd failed before orphan switch")
-
-    tmp_branch = await _generate_unique_temp_branch(repo_dir, env, logs)
-    _log_debug(logs, f"Switching to orphan temporary branch '{tmp_branch}'.")
-    orphan_result = await run_git_command(
-        "switch",
-        "--orphan",
-        tmp_branch,
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if orphan_result.returncode != 0:
-        raise RuntimeError("Failed to create temporary orphan branch")
-
-    _log_debug(logs, "Creating empty commit on temporary branch.")
-    commit_result = await run_git_command(
-        "-c",
-        "user.name=git-webui",
-        "-c",
-        "user.email=git-webui@localhost",
-        "commit",
-        "--allow-empty",
-        "-m",
-        "temporary cleanup branch",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if commit_result.returncode != 0:
-        raise RuntimeError("Failed to create temporary empty commit")
-
-    branches_result = await run_git_command(
-        "for-each-ref",
-        "--format=%(refname:short)",
-        "refs/heads/",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if branches_result.returncode != 0:
-        raise RuntimeError("Failed to list local branches")
-    branches = [line.strip() for line in branches_result.stdout.splitlines() if line.strip()]
-    for branch in branches:
-        if branch == tmp_branch:
-            continue
-        _log_debug(logs, f"Deleting local branch '{branch}'.")
-        delete_result = await run_git_command(
-            "branch",
-            "-D",
-            branch,
-            cwd=repo_dir,
-            env=env,
-            log=logs,
-        )
-        if delete_result.returncode != 0:
-            raise RuntimeError(f"Failed to delete branch {branch}")
-
-    _log_debug(logs, f"Recreating default branch '{default_branch}' from origin/{default_branch}.")
-    switch_default_result = await run_git_command(
-        "switch",
-        "-C",
-        default_branch,
-        f"origin/{default_branch}",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if switch_default_result.returncode != 0:
-        raise RuntimeError(f"Failed to reset default branch {default_branch}")
-
-    _log_debug(logs, "Resetting and cleaning working tree.")
-    reset_result = await run_git_command(
-        "reset",
-        "--hard",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if reset_result.returncode != 0:
-        raise RuntimeError("git reset --hard failed")
-    clean_result = await run_git_command(
-        "clean",
-        "-fd",
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if clean_result.returncode != 0:
-        raise RuntimeError("git clean -fd failed")
-
-    if target_branch:
-        if await _git_ref_exists(repo_dir, f"refs/remotes/origin/{target_branch}", env, logs):
-            _log_debug(logs, f"Switching to target branch '{target_branch}' from origin/{target_branch}.")
-            target_result = await run_git_command(
-                "switch",
-                "-C",
-                target_branch,
-                f"origin/{target_branch}",
-                cwd=repo_dir,
-                env=env,
-                log=logs,
-            )
-            if target_result.returncode != 0:
-                raise RuntimeError(f"Failed to switch to origin/{target_branch}")
-        else:
-            _log_debug(logs, f"Creating new local branch '{target_branch}' from default branch.")
-            create_target_result = await run_git_command(
-                "switch",
-                "-c",
-                target_branch,
-                cwd=repo_dir,
-                env=env,
-                log=logs,
-            )
-            if create_target_result.returncode != 0:
-                raise RuntimeError(f"Failed to create local branch {target_branch}")
-
-    _log_debug(logs, f"Deleting temporary branch '{tmp_branch}'.")
-    delete_tmp_result = await run_git_command(
-        "branch",
-        "-D",
-        tmp_branch,
-        cwd=repo_dir,
-        env=env,
-        log=logs,
-    )
-    if delete_tmp_result.returncode != 0:
-        raise RuntimeError(f"Failed to delete temporary branch {tmp_branch}")
 
 
 def _parse_port(value: object) -> int:
@@ -903,60 +707,10 @@ def _resolve_server_listen_config(
     return ServerListenConfig(host=bind, port=_parse_port(port_source), path=None)
 
 
-def _parse_port_argument(value: str) -> int:
-    try:
-        return _parse_port(value)
-    except RuntimeError as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the git-webui backend server.")
-    parser.add_argument("--bind", help="Bind address for the backend server.")
-    parser.add_argument("--port", type=_parse_port_argument, help="Port number for the backend server.")
-    parser.add_argument(
-        "--unix-socket",
-        help="AF_UNIX socket path for the backend server. Cannot be combined with --bind or --port.",
-    )
-    parser.add_argument(
-        "--config",
-        help="Path to the config.toml file.",
-        default=str(DEFAULT_CONFIG_PATH),
-    )
-    parser.add_argument(
-        "--repo-root",
-        help="Path to the repository workspace root.",
-        default=str(DEFAULT_REPO_ROOT),
-    )
-    parser.add_argument(
-        "--keep-temp",
-        action="store_true",
-        help="Keep temporary workspaces for debugging.",
-        default=False,
-    )
-    parser.add_argument(
-        "--serve-frontend",
-        dest="serve_frontend",
-        action="store_true",
-        default=True,
-        help="Serve the frontend UI from the backend server (default).",
-    )
-    parser.add_argument(
-        "--no-serve-frontend",
-        dest="serve_frontend",
-        action="store_false",
-        help="Disable serving the frontend UI from the backend server.",
-    )
-    return parser.parse_args()
 
 
-def _configure_runtime(config_path: str, repo_root: str, keep_temp: bool) -> None:
-    global CONFIG_PATH, REPO_ROOT, KEEP_TEMP, APP_CONFIG
-    CONFIG_PATH = Path(config_path)
-    REPO_ROOT = Path(repo_root).expanduser()
-    REPO_ROOT.mkdir(parents=True, exist_ok=True)
-    KEEP_TEMP = keep_temp
-    APP_CONFIG = _load_config(CONFIG_PATH)
 
 
 def _frontend_root() -> Path:
@@ -1068,11 +822,6 @@ def _temporary_workspace(logs: Optional[LogSink] = None) -> Path:
         yield Path(tmpdir)
 
 
-def _find_default_index(entries: List[Dict[str, object]]) -> Optional[int]:
-    for idx, entry in enumerate(entries):
-        if entry.get("default") is True:
-            return idx
-    return None
 
 
 def _normalize_repository_identifier(value: str) -> str:
@@ -1281,11 +1030,6 @@ async def _github_listing(force_refresh: bool = False) -> Dict[str, object]:
     return payload
 
 
-def _display_label(entry: Dict[str, str], fallback: str) -> str:
-    label = entry.get("label")
-    if isinstance(label, str) and label.strip():
-        return label
-    return fallback
 
 
 def _serialize_config() -> Dict[str, object]:

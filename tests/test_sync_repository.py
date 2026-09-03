@@ -2,8 +2,8 @@ import asyncio
 import unittest
 from unittest import mock
 
-from backend import app
-from backend.app import LogSink, process_submission
+from backend.git_webui import application as app
+from backend.git_webui.application import LogSink, process_submission
 
 
 class SyncRepositoryTests(unittest.TestCase):

@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend import app
-from backend.app import CommandResult, _ensure_mirror_cache
+from backend.git_webui import application as app
+from backend.git_webui.application import CommandResult, _ensure_mirror_cache
 
 
 class MirrorCacheTests(unittest.TestCase):

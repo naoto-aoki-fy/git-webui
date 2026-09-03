@@ -4,7 +4,7 @@ from pathlib import Path
 
 import json
 
-from backend.app import _parse_add_files, _write_repo_file
+from backend.git_webui.application import _parse_add_files, _write_repo_file
 
 
 class AddFileTests(unittest.TestCase):

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from .application import DEFAULT_BIND, DEFAULT_CONFIG_PATH, DEFAULT_PORT, DEFAULT_REPO_ROOT, MAX_LINE_SIZE, _parse_port_argument, _resolve_server_listen_config, server_started
+from .application import DEFAULT_CONFIG_PATH, DEFAULT_REPO_ROOT, MAX_LINE_SIZE, _parse_port, _resolve_server_listen_config, server_started
 from .bootstrap import create_app
 from .settings import Settings
 
@@ -24,6 +24,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--serve-frontend", dest="serve_frontend", action="store_true", default=True)
     parser.add_argument("--no-serve-frontend", dest="serve_frontend", action="store_false")
     return parser.parse_args()
+
+
+def _parse_port_argument(value: str) -> int:
+    try:
+        return _parse_port(value)
+    except RuntimeError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 def main() -> None:
