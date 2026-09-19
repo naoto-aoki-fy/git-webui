@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, TypedDict
+from typing import Awaitable, Callable, Dict, List, Optional, Set, TypedDict
 import traceback
 
 from aiohttp import web
@@ -27,6 +27,7 @@ DEFAULT_CONFIG_PATH = Path("config.toml")
 DEFAULT_BIND = "0.0.0.0"
 DEFAULT_PORT = 8080
 MAX_LINE_SIZE = 32 * 1024
+MAX_REQUEST_BODY_SIZE = 16 * 1024 * 1024
 GITHUB_CACHE_FILENAME = ".github-list-cache.json"
 SUBMISSION_MODES = {
     "default", "add_file", "from_commit", "orphan", "revert_to_commit",
@@ -117,7 +118,15 @@ async def cors_middleware(request: web.Request, handler: Callable[[web.Request],
             return web.Response(status=403, text="CORS origin denied")
         return web.Response(status=204, headers=cors_headers)
 
-    response = await handler(request)
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        # aiohttp can reject an oversized body before a handler returns a
+        # response.  Attach CORS headers to those errors as well so browsers
+        # expose the HTTP status instead of reporting an opaque fetch failure.
+        if cors_headers:
+            exc.headers.update(cors_headers)
+        raise
     if cors_headers:
         response.headers.update(cors_headers)
     return response
@@ -1657,7 +1666,13 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 _log_debug(logs, "File contents written successfully.")
             elif patch_content.strip():
                 patch_path = workdir / "patch.diff"
-                logs.append(_timestamped(patch_content))
+                patch_bytes = len(patch_content.encode("utf-8"))
+                patch_lines = len(patch_content.splitlines())
+                logs.append(
+                    _timestamped(
+                        f"Received patch: {patch_bytes} bytes, {patch_lines} lines."
+                    )
+                )
                 patch_path.write_text(patch_content, encoding="utf-8", newline="\n")
                 logs.append(_timestamped("Patch written to temporary file."))
                 _log_debug(logs, f"Patch file saved to {patch_path}.")
@@ -1966,7 +1981,10 @@ async def stop_github_listing_refresh(app: web.Application) -> None:
 
 
 def create_web_app(serve_frontend: bool = True) -> web.Application:
-    app = web.Application(middlewares=[cors_middleware])
+    app = web.Application(
+        middlewares=[cors_middleware],
+        client_max_size=MAX_REQUEST_BODY_SIZE,
+    )
     app[SSE_CLIENTS_KEY] = {}
     app[SUBMISSIONS_KEY] = {}
     app[GITHUB_REFRESH_TASK_KEY] = {}
