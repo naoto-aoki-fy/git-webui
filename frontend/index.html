@@ -127,6 +127,19 @@
                 </select>
             </div>
             <div>
+                <label for="patch_application_method">Patch application method</label>
+                <select id="patch_application_method" name="patch_application_method">
+                    <option value="git_apply" selected>git apply --3way</option>
+                    <option value="patch_fuzzy">patch (fuzzy context matching)</option>
+                </select>
+                <p class="subtle">The default preserves Git's three-way patch behavior. Fuzzy mode uses the system GNU <code>patch</code> command.</p>
+            </div>
+            <div id="patch_fuzz_group" class="hidden">
+                <label for="patch_fuzz">Patch fuzz factor (ignored outer context lines)</label>
+                <input type="number" id="patch_fuzz" name="patch_fuzz" value="2" min="0" max="100" step="1">
+                <p class="subtle">GNU <code>patch -F N</code> may ignore up to N context lines from the beginning and end of a hunk while locating where to apply it.</p>
+            </div>
+            <div>
                 <label>Commit message generation method</label>
                 <div class="toggle-group" role="radiogroup" aria-label="Commit message generation method">
                     <label>
@@ -289,7 +302,7 @@
         </div>
         <div id="patch_group">
             <div class="field-header">
-                <label for="patch">Patch (applied with git apply --3way -v)</label>
+                <label for="patch">Patch</label>
                 <div class="field-header-actions">
                     <span id="patch_cjk_indicator" class="cjk-indicator hidden">CJK detected</span>
                     <button type="button" class="button secondary" id="paste_patch" data-paste-target="patch">

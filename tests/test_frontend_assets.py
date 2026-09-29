@@ -192,6 +192,17 @@ class FrontendAssetsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('const destination = findAdditionalRepository();', html)
         self.assertIn('preferredLogins.push(repositoryOwner);', html)
 
+    async def test_patch_method_settings_are_persisted_and_submitted(self) -> None:
+        html = await self.frontend_source()
+
+        self.assertIn('<option value="git_apply" selected>git apply --3way</option>', html)
+        self.assertIn('<option value="patch_fuzzy">patch (fuzzy context matching)</option>', html)
+        self.assertIn('id="patch_fuzz" name="patch_fuzz" value="2" min="0" max="100"', html)
+        self.assertIn('const PATCH_SETTINGS_STORAGE_KEY = "git-webui.patchSettings";', html)
+        self.assertIn('readPatchSettings();', html)
+        self.assertIn('payload.patch_application_method = patchApplicationMethodField?.value', html)
+        self.assertIn('payload.patch_fuzz = patchFuzzField?.value', html)
+
 
 if __name__ == "__main__":
     unittest.main()

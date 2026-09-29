@@ -33,6 +33,10 @@ SUBMISSION_MODES = {
     "default", "add_file", "from_commit", "orphan", "revert_to_commit",
     "merge_branches", "mirror_repository",
 }
+PATCH_APPLICATION_METHODS = {"git_apply", "patch_fuzzy"}
+DEFAULT_PATCH_APPLICATION_METHOD = "git_apply"
+DEFAULT_PATCH_FUZZ = 2
+MAX_PATCH_FUZZ = 100
 _MIRROR_CACHE_LOCKS: Dict[str, asyncio.Lock] = {}
 
 
@@ -403,6 +407,77 @@ async def _apply_patch_with_line_ending_retry(
 
     if apply_result.returncode != 0:
         raise RuntimeError("git apply failed")
+
+
+def _parse_patch_application_options(form: Dict[str, str]) -> tuple[str, int]:
+    method = form.get("patch_application_method", DEFAULT_PATCH_APPLICATION_METHOD).strip()
+    if method not in PATCH_APPLICATION_METHODS:
+        supported = ", ".join(sorted(PATCH_APPLICATION_METHODS))
+        raise RuntimeError(
+            f"Invalid patch application method {method!r}; expected one of: {supported}."
+        )
+
+    raw_fuzz = form.get("patch_fuzz", str(DEFAULT_PATCH_FUZZ)).strip()
+    try:
+        fuzz = int(raw_fuzz)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Patch fuzz factor must be an integer.") from exc
+    if fuzz < 0:
+        raise RuntimeError("Patch fuzz factor must be non-negative.")
+    if fuzz > MAX_PATCH_FUZZ:
+        raise RuntimeError(f"Patch fuzz factor must not exceed {MAX_PATCH_FUZZ}.")
+    return method, fuzz
+
+
+def _validate_fuzzy_patch_content(patch_content: str) -> None:
+    """Reject Git-only patch features whose semantics GNU patch cannot preserve."""
+    unsupported_patterns = (
+        (r"^GIT binary patch$", "Git binary patches"),
+        (r"^Binary files .* differ$", "binary patches"),
+        (r"^(?:old|new|deleted file|new file) mode \d+$", "file mode changes"),
+        (r"^(?:rename|copy) (?:from|to) ", "rename/copy metadata"),
+        (r"^(?:similarity|dissimilarity) index ", "rename/copy metadata"),
+    )
+    for pattern, feature in unsupported_patterns:
+        if re.search(pattern, patch_content, flags=re.MULTILINE):
+            raise RuntimeError(
+                f"Fuzzy patch mode does not support {feature}; use git apply --3way instead."
+            )
+
+
+async def _apply_patch(
+    method: str,
+    fuzz: int,
+    repo_dir: Path,
+    patch_path: Path,
+    patch_content: str,
+    env: Dict[str, str],
+    logs: LogSink,
+) -> None:
+    if method == "git_apply":
+        _log_debug(logs, "Patch application method: git apply --3way.")
+        await _apply_patch_with_line_ending_retry(
+            repo_dir, patch_path, patch_content, env, logs
+        )
+        return
+
+    _validate_fuzzy_patch_content(patch_content)
+    _log_debug(logs, f"Patch application method: GNU patch (fuzz factor {fuzz}).")
+    try:
+        result = await run_command(
+            "patch", "-p1", "-F", str(fuzz), "-i", str(patch_path),
+            cwd=repo_dir, env=env, log=logs,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "GNU patch executable was not found on PATH; install it or use git apply --3way."
+        ) from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        message = f"patch failed with exit code {result.returncode}"
+        if detail:
+            message += f": {detail}"
+        raise RuntimeError(message)
 
 
 @dataclass
@@ -1278,6 +1353,11 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     allow_empty_commit = form.get("allow_empty_commit") == "true"
     patch_content = form.get("patch", "").replace("\r\n", "\n")
     try:
+        patch_application_method, patch_fuzz = _parse_patch_application_options(form)
+    except RuntimeError as exc:
+        logs.append(_timestamped(str(exc)))
+        return {"form_values": dict(form), "success": False}
+    try:
         add_files = _parse_add_files(form)
     except RuntimeError as exc:
         logs.append(_timestamped(str(exc)))
@@ -1298,6 +1378,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
     _log_debug(logs, f"Commit message length={len(commit_message)}.")
     _log_debug(logs, f"Allow empty commit={allow_empty_commit}.")
     _log_debug(logs, f"Patch length={len(patch_content)}.")
+    _log_debug(logs, f"Patch application method='{patch_application_method}'.")
+    _log_debug(logs, f"Patch fuzz factor={patch_fuzz}.")
     _log_debug(logs, f"Parsed {len(add_files)} non-empty file(s).")
 
     target_branch = new_branch if branch_mode in {"from_commit", "orphan"} else (branch if branch_mode in {"default", "add_file", "merge_branches"} else None)
@@ -1316,6 +1398,8 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
         "backup_before_reset": "true" if backup_before_reset else "",
         "backup_branch_format": backup_branch_format,
         "files": json.dumps(add_files),
+        "patch_application_method": patch_application_method,
+        "patch_fuzz": str(patch_fuzz),
     }
 
     success = False
@@ -1677,12 +1761,9 @@ async def process_submission(form: Dict[str, str], logs: LogSink) -> Dict[str, o
                 logs.append(_timestamped("Patch written to temporary file."))
                 _log_debug(logs, f"Patch file saved to {patch_path}.")
 
-                await _apply_patch_with_line_ending_retry(
-                    repo_dir,
-                    patch_path,
-                    patch_content,
-                    env,
-                    logs,
+                await _apply_patch(
+                    patch_application_method, patch_fuzz, repo_dir, patch_path,
+                    patch_content, env, logs,
                 )
                 _log_debug(logs, "Patch applied successfully.")
             else:

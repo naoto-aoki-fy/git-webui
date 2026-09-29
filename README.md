@@ -1,6 +1,6 @@
 # git-webui
 
-A small web UI for applying a unified diff patch to a Git repository with `git apply --3way`, then optionally committing and pushing the result.
+A small web UI for applying a unified diff patch to a Git repository, then optionally committing and pushing the result.
 
 This repository currently contains:
 
@@ -54,6 +54,7 @@ package.json / package-lock.json # Node test and build dependencies
 
 - Python 3.11+ (uses `tomllib` from the standard library).
 - Git installed and available on `PATH`.
+- GNU `patch` installed and available on `PATH` when using optional fuzzy patch mode.
 - GitHub CLI (`gh`) authenticated for every GitHub account you want to use.
 - A Git credential helper configured to select credentials from each HTTPS repository owner (example below).
 
@@ -138,6 +139,7 @@ CORS_ALLOW_ORIGIN="https://naoto-aoki-fy.github.io,https://example.com" python b
 - Query/hash parameters are supported for pre-filling fields.
 - Repositories are entered as separate GitHub owner and repository name fields; “Open on GitHub” links to the resulting repository and optional branch. Sync mode provides links for both repositories, can swap Repository A and Repository B before submission, and defaults to `git push --all` while allowing either one named branch or `git push --mirror` to be synchronized.
 - Includes helper actions for clipboard paste and commit-message prompt generation.
+- Patch application defaults to `git apply --3way` and retains its LF/CRLF retry behavior. The browser Config screen can instead select fuzzy mode, which runs `patch -p1 -F N -i <patch-file>` and then uses the same `git add -A` staging flow. GNU `patch`'s `-F N` may discard up to N context lines at the beginning and end of a hunk while finding a match; it does not permit arbitrary mismatches within a hunk. This per-browser method and fuzz factor are saved in `localStorage`.
 - The prompt generation link defaults to ChatGPT. Its URL template can be changed in the UI; use `{message}` in the template to insert the URL-encoded prompt. The service-name setting is retained for compatibility but does not currently change the button label.
 - The OpenAI-compatible endpoint URL, authorization token, model, and candidate output format are configured in the frontend and saved in that browser's `localStorage`. Candidate generation supports NDJSON, FlatJSON as a single-level object via JSON mode (`json_object`), and JSON Structured Outputs (`json_schema`); the latter two require endpoint support for the corresponding `response_format`. FlatJSON uses `candidate_count`, `recommended_candidate_id`, and `candidate_N_*` scalar properties without arrays or nested objects. The token is sent directly from the browser to the configured endpoint and never passes through the git-webui backend; the endpoint must permit CORS requests from the frontend origin.
 - Additional top-level request parameters are stored as raw text in `git-webui.openAISettings` in that browser's `localStorage`. They must be a JSON object, such as `{"reasoning_effort":"none"}`; arrays and other JSON values are rejected.
@@ -160,3 +162,4 @@ GitHub Actions runs the Python and Node.js test suites for pushes and pull reque
 - GitHub operations use HTTPS and rely on the configured Git credential helper to choose credentials by repository owner; SSH remotes are rejected.
 - The backend keeps per-repository bare mirror caches under `--repo-root` and refreshes an existing cache from its remote before each operation. Every submission then uses its own temporary clone, so concurrent operations never share a Git index or working tree.
 - This is currently a lightweight static frontend and Python backend, without a packaged release process.
+- Fuzzy mode is intended for ordinary textual unified or Git-style diffs. It rejects Git binary patches, file-mode changes, and rename/copy metadata because GNU `patch` cannot safely preserve all Git-specific semantics; use the default `git apply --3way` method for those patches.

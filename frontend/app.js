@@ -161,6 +161,9 @@ const backendApplyButton = document.getElementById("backend_apply");
 const backendDisconnectButton = document.getElementById("backend_disconnect");
 const backendStatus = document.getElementById("backend_status");
 const themeModeField = document.getElementById("theme_mode");
+const patchApplicationMethodField = document.getElementById("patch_application_method");
+const patchFuzzField = document.getElementById("patch_fuzz");
+const patchFuzzGroup = document.getElementById("patch_fuzz_group");
 const resultModal = document.getElementById("result_modal");
 const resultTitle = document.getElementById("result_title");
 const resultMessage = document.getElementById("result_message");
@@ -173,6 +176,7 @@ const THEME_STORAGE_KEY = "git-webui.theme";
 const GENERATE_SETTINGS_STORAGE_KEY = "git-webui.generateSettings";
 const OPENAI_SETTINGS_STORAGE_KEY = "git-webui.openAISettings";
 const LLM_SETTINGS_STORAGE_KEY = "git-webui.llmSettings.v2";
+const PATCH_SETTINGS_STORAGE_KEY = "git-webui.patchSettings";
 const DEFAULT_GENERATE_URL_TEMPLATE = "https://chatgpt.com/#?q={message}";
 const DEFAULT_OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const MAX_STORED_VALUES = 10;
@@ -189,6 +193,31 @@ let isSubmitting = false;
 let generatedCandidates = [];
 let candidateGenerationController = null;
 let codexProvider = null;
+const updatePatchSettingsVisibility = () => {
+    const fuzzy = patchApplicationMethodField?.value === "patch_fuzzy";
+    patchFuzzGroup?.classList.toggle("hidden", !fuzzy);
+    if (patchFuzzField) patchFuzzField.disabled = !fuzzy;
+};
+const readPatchSettings = () => {
+    try {
+        const settings = JSON.parse(window.localStorage.getItem(PATCH_SETTINGS_STORAGE_KEY));
+        patchApplicationMethodField.value = settings?.method === "patch_fuzzy" ? "patch_fuzzy" : "git_apply";
+        if (Number.isInteger(settings?.fuzz) && settings.fuzz >= 0 && settings.fuzz <= 100) {
+            patchFuzzField.value = String(settings.fuzz);
+        }
+    } catch (error) {
+        console.warn("Unable to read patch settings", error);
+    }
+    updatePatchSettingsVisibility();
+};
+const savePatchSettings = () => {
+    const fuzz = Number.parseInt(patchFuzzField.value, 10);
+    window.localStorage.setItem(PATCH_SETTINGS_STORAGE_KEY, JSON.stringify({
+        method: patchApplicationMethodField.value,
+        fuzz: Number.isInteger(fuzz) ? fuzz : 2,
+    }));
+    updatePatchSettingsVisibility();
+};
 const applyTheme = (mode) => {
     const theme = mode === "dark" ? "dark" : mode === "light" ? "light" : "auto";
     document.body.setAttribute("data-theme", theme);
@@ -1173,6 +1202,9 @@ const handleSubmit = (event) => {
         commitMessageField.setCustomValidity("");
     }
     const payload = Object.fromEntries(new FormData(form).entries());
+    // Disabled controls are omitted by FormData, so always send both patch settings.
+    payload.patch_application_method = patchApplicationMethodField?.value || "git_apply";
+    payload.patch_fuzz = patchFuzzField?.value || "2";
     const branchMode = payload.branch_mode || "default";
     delete payload.branch_mode;
     if (branchMode === "from_commit" || branchMode === "orphan") {
@@ -1704,6 +1736,8 @@ if (themeModeField) {
         setTheme(themeModeField.value);
     });
 }
+patchApplicationMethodField?.addEventListener("change", savePatchSettings);
+patchFuzzField?.addEventListener("change", savePatchSettings);
 generateServiceNameField.addEventListener("input", saveGenerateSettings);
 generateUrlTemplateField.addEventListener("input", saveGenerateSettings);
 commitMessageActionInputs.forEach((input) => input.addEventListener("change", saveGenerateSettings));
@@ -1718,6 +1752,7 @@ if (resultModal) {        resultModal.addEventListener("click", (event) => {    
 
 const initializeForm = async () => {
     applyTheme(window.localStorage.getItem(THEME_STORAGE_KEY) || "auto");
+    readPatchSettings();
     const savedDraft = readDraft();
     if (!hasQueryParams) {
         applyDraft(savedDraft);
