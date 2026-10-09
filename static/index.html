@@ -54,6 +54,16 @@
       </section>
     </div>
     <section class="history" aria-labelledby="history-title"><div class="history-header"><h2 id="history-title">Recent clones</h2><span id="history-count">THIS SESSION</span></div><div id="history-list"><p class="history-empty">Your cloned repositories will appear here.</p></div></section>
+    <section class="history" aria-labelledby="catalog-title">
+      <div class="history-header"><h2 id="catalog-title">Cloned folders</h2><button id="refresh-repositories" class="secondary" type="button">Refresh</button></div>
+      <p class="field-note">Saved across server restarts. Deleting an entry keeps its files on disk.</p>
+      <form id="repository-form">
+        <label for="existing-path">Add an already cloned Git folder</label>
+        <div class="location-field"><input id="existing-path" name="path" required maxlength="4096" placeholder="/path/to/repository" autocomplete="off" spellcheck="false"><button id="browse-existing" class="secondary" type="button">Browse…</button><button id="add-repository" class="secondary" type="submit">Add folder</button></div>
+      </form>
+      <p id="repository-error" class="form-error" role="alert" hidden></p>
+      <div id="repository-list" aria-live="polite"></div>
+    </section>
     <footer><span>Small tool. Fresh possibilities.</span><span>BUILT ON GIT <span aria-hidden="true">↗</span></span></footer>
   </main>
   <dialog id="folder-dialog" aria-labelledby="folder-title" aria-describedby="folder-description">

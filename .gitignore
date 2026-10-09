@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 clones/
+*.sqlite3
+*.sqlite3-*

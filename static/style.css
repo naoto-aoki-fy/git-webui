@@ -153,3 +153,9 @@ button:disabled{cursor:default}
 .folder-list>p{padding:8px;color:var(--muted);font-size:12px}
 .folder-actions{justify-content:flex-end;margin-top:18px}
 .folder-actions .primary{width:auto}
+
+.repository-row>span{min-width:0;overflow-wrap:anywhere}
+.repository-row small{display:block;overflow-wrap:anywhere}
+.repository-row{gap:16px}
+#repository-form label{display:block;margin:16px 0 8px;font-size:12px;font-weight:600}
+@media(max-width:600px){#repository-form .location-field{flex-wrap:wrap}#existing-path{flex-basis:100%}}

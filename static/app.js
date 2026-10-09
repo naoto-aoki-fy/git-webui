@@ -141,6 +141,7 @@ $('auto-scroll').addEventListener('change', () => {
 refreshJobs().catch((error) => showError(`Unable to load clones: ${error.message}`));
 setInterval(() => refreshJobs().catch(() => {}), 5000);
 
+let folderTarget = 'location';
 let folderPath = null;
 let parentPath = null;
 let folderRequest = 0;
@@ -186,6 +187,8 @@ async function loadFolders(path = '') {
 }
 
 $('browse-location').addEventListener('click', () => {
+  folderTarget = 'location';
+  $('folder-title').textContent = 'Choose clone location';
   $('folder-dialog').showModal();
   $('folder-path').value = $('location').value.trim();
   loadFolders($('location').value.trim());
@@ -203,10 +206,81 @@ $('folder-up').addEventListener('click', () => {
 $('folder-default').addEventListener('click', () => loadFolders());
 $('select-folder').addEventListener('click', () => {
   if (!folderPath) return;
-  $('location').value = folderPath;
+  $(folderTarget).value = folderPath;
   $('folder-dialog').close();
 });
 for (const id of ['close-folder', 'cancel-folder']) {
   $(id).addEventListener('click', () => $('folder-dialog').close());
 }
 $('folder-dialog').addEventListener('close', () => { folderRequest += 1; });
+
+
+function repositoryError(message = '') {
+  $('repository-error').textContent = message;
+  $('repository-error').hidden = !message;
+}
+
+async function refreshRepositories() {
+  const entries = await api('/api/repositories');
+  const list = $('repository-list');
+  list.replaceChildren();
+  if (!entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'history-empty';
+    empty.textContent = 'No saved folders. Clone a repository or add an existing Git folder.';
+    list.append(empty);
+  }
+  for (const entry of entries) {
+    const row = document.createElement('div');
+    row.className = 'history-row repository-row';
+    const details = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = entry.owner ? `${entry.owner} / ${entry.name}` : entry.name;
+    const path = document.createElement('small');
+    path.textContent = entry.path;
+    details.append(title, path);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'secondary';
+    remove.textContent = 'Delete entry';
+    remove.setAttribute('aria-label', `Delete catalog entry for ${entry.name}`);
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      repositoryError();
+      try {
+        await api(`/api/repositories/${entry.id}`, { method: 'DELETE' });
+        await refreshRepositories();
+      } catch (error) { repositoryError(error.message); }
+      finally { remove.disabled = false; }
+    });
+    row.append(details, remove);
+    list.append(row);
+  }
+}
+
+$('repository-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  repositoryError();
+  $('add-repository').disabled = true;
+  try {
+    await api('/api/repositories', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: $('existing-path').value.trim() })
+    });
+    $('existing-path').value = '';
+    await refreshRepositories();
+  } catch (error) { repositoryError(error.message); }
+  finally { $('add-repository').disabled = false; }
+});
+$('browse-existing').addEventListener('click', () => {
+  folderTarget = 'existing-path';
+  $('folder-title').textContent = 'Choose an existing Git folder';
+  $('folder-dialog').showModal();
+  loadFolders($('existing-path').value.trim());
+});
+$('refresh-repositories').addEventListener('click', () => {
+  repositoryError();
+  refreshRepositories().catch((error) => repositoryError(error.message));
+});
+refreshRepositories().catch((error) => repositoryError(error.message));
+setInterval(() => refreshRepositories().catch((error) => repositoryError(error.message)), 5000);

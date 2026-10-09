@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,12 +13,14 @@ from pathlib import Path
 from aiohttp import web
 from clone_jobs import Job, run_clone
 from filesystem import browse_directories, prepare_location
+from repositories import RepositoryStore, existing_repository
 
 STATIC = Path(__file__).parent / 'static'
 MAX_JOBS = 100
 MAX_ACTIVE = 3
 JOBS = web.AppKey('jobs', dict)
 ROOT = web.AppKey('root', Path)
+REPOSITORIES = web.AppKey('repositories', RepositoryStore)
 DEFAULT_FOLDER_FORMAT = '{date}-{repo}'
 
 
@@ -39,7 +42,7 @@ def format_folder(value, owner, repository, identifier):
 @web.middleware
 async def errors(request, handler):
     origin = request.headers.get('Origin')
-    if request.method == 'POST' and origin and origin != f'{request.scheme}://{request.host}':
+    if request.method in {'POST', 'DELETE', 'PUT', 'PATCH'} and origin and origin != f'{request.scheme}://{request.host}':
         return web.json_response({'error': 'Cross-origin requests are not allowed.'}, status=403)
     try:
         response = await handler(request)
@@ -118,8 +121,50 @@ async def create_clone(request):
         destination = root / f'{folder}-{identifier}'
     job = Job(identifier, owner, repository, branch, destination)
     jobs[job.id] = job
-    job.task = asyncio.create_task(run_clone(job))
+    job.task = asyncio.create_task(clone_and_register(request.app, job))
     return web.json_response(job.summary(), status=202)
+
+
+async def clone_and_register(app, job):
+    await run_clone(job)
+    if job.status == 'succeeded':
+        try:
+            app[REPOSITORIES].add(job.destination, job.repository, job.owner, job.branch)
+        except sqlite3.IntegrityError:
+            pass  # The folder was already registered manually.
+        except sqlite3.Error:
+            app.logger.exception('Unable to save cloned folder in the repository catalog')
+
+
+async def list_repositories(request):
+    return web.json_response(request.app[REPOSITORIES].list())
+
+
+async def add_repository(request):
+    try:
+        payload = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        raise web.HTTPBadRequest(reason='Send a JSON object with a folder path.')
+    if not isinstance(payload, dict):
+        raise web.HTTPBadRequest(reason='Expected a JSON object.')
+    path = await filesystem_call(existing_repository, payload.get('path'), request.app[ROOT])
+    check = await asyncio.create_subprocess_exec(
+        'git', '-C', str(path), 'rev-parse', '--is-inside-work-tree',
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    stdout, _ = await check.communicate()
+    if check.returncode != 0 or stdout.strip() != b'true':
+        raise web.HTTPBadRequest(reason='Select a valid Git working folder.')
+    try:
+        entry = request.app[REPOSITORIES].add(path)
+    except sqlite3.IntegrityError:
+        raise web.HTTPConflict(reason='This folder is already in the catalog.')
+    return web.json_response(entry, status=201)
+
+
+async def delete_repository(request):
+    if not request.app[REPOSITORIES].delete(request.match_info['id']):
+        raise web.HTTPNotFound(reason='Repository entry not found.')
+    return web.json_response({'deleted': True})
 
 
 async def list_clones(request):
@@ -182,10 +227,14 @@ async def cleanup(app):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-def create_app(clone_root=None):
+def create_app(clone_root=None, database=None):
     app = web.Application(middlewares=[errors], client_max_size=4096)
     app[JOBS] = {}
     app[ROOT] = Path(clone_root or os.environ.get('CLONE_ROOT', 'clones')).resolve()
+    app[REPOSITORIES] = RepositoryStore(database or os.environ.get('REPOSITORY_DB') or app[ROOT] / 'repositories.sqlite3')
+    app.router.add_get('/api/repositories', list_repositories)
+    app.router.add_post('/api/repositories', add_repository)
+    app.router.add_delete('/api/repositories/{id}', delete_repository)
     app.router.add_get('/', index)
     app.router.add_get('/api/directories', list_directories)
     app.router.add_get('/api/clones', list_clones)
@@ -202,7 +251,8 @@ if __name__ == '__main__':
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--clone-root', default=None)
+    parser.add_argument('--database', default=None, help='SQLite repository catalog path')
     args = parser.parse_args()
     if not shutil.which('git'):
         parser.error('Git must be installed and available on PATH.')
-    web.run_app(create_app(args.clone_root), host=args.host, port=args.port)
+    web.run_app(create_app(args.clone_root, args.database), host=args.host, port=args.port)

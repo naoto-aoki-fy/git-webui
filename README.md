@@ -20,7 +20,9 @@ Leave the location empty to save under `./clones/`. Override this default with `
 
 Use **Folder name format** to customize the final folder inside the clone location. The default is `{date}-{repo}`, for example `20261009-Hello-World`. Supported placeholders are `{owner}`, `{repo}`, `{id}` (the clone job ID), and `{date}` (the server’s local date as `YYYYMMDD`). Use `{owner}--{repo}--{id}` for the previous naming style. Leaving the format empty uses the default. Names must be a single folder name of at most 200 UTF-8 bytes, without slashes or control characters. If a name already exists or is used by another retained job, the job ID is appended to keep destinations separate.
 
-The UI provides live output, cancellation, automatic scrolling, log copying, and recent jobs. Closing or refreshing the browser does not stop a clone. Jobs and logs live in memory: restarting the server clears history but keeps cloned files. The server retains the latest 100 jobs and 2,000 output events per job; the browser displays up to 500,000 log characters. Cancelled or failed clones may leave partial files at the displayed destination. At most three jobs run at once. Shutdown stops active Git processes.
+The UI provides live output, cancellation, automatic scrolling, log copying, and recent jobs. Closing or refreshing the browser does not stop a clone. Successful clones are automatically saved in a SQLite folder catalog. Use **Cloned folders** to list saved repositories, add an existing Git working folder (by path or the folder picker), or delete a catalog entry while keeping the files on disk. Duplicate paths are rejected. The catalog persists across restarts; repository contents remain on disk. SQLite defaults to `repositories.sqlite3` inside the default clone root; set `--database /path/catalog.sqlite3` or `REPOSITORY_DB` to choose another location. Existing folders from before this feature can be added manually.
+
+Jobs and logs live in memory: restarting the server clears history but keeps cloned files. The server retains the latest 100 jobs and 2,000 output events per job; the browser displays up to 500,000 log characters. Cancelled or failed clones may leave partial files at the displayed destination. At most three jobs run at once. Shutdown stops active Git processes.
 
 Public repositories work without authentication. Private repositories require credentials already configured on the server (for example, through a Git credential helper or a server-side `.netrc` file). Git uses configured credential helpers; interactive prompts remain disabled. The UI does not accept GitHub tokens. Git failures appear in the console.
 
@@ -28,6 +30,9 @@ The default binding is local. The app has no user authentication; use an authent
 
 ## API
 
+- `GET /api/repositories`: persistent folder catalog, newest first.
+- `POST /api/repositories`: JSON `{ "path": "/path/to/existing/git-folder" }`; validates the Git working folder and returns the saved entry with HTTP 201 (409 for a duplicate).
+- `DELETE /api/repositories/{id}`: deletes the catalog entry only; files are kept.
 - `POST /api/clones`: JSON `{ "owner": "octocat", "repository": "Hello-World", "branch": "", "location": "", "folder_format": "{date}-{repo}" }`; returns the job with HTTP 202.
 - `GET /api/directories?path=/path/to/folder`: lists server-side subfolders, the parent path, and the configured default clone location. Omit `path` to browse the default folder (or its nearest existing parent).
 - `GET /api/clones`: retained jobs, newest first.
