@@ -37,7 +37,7 @@ class Job:
 
 
 def git_command(job):
-    command = ['git', '-c', 'credential.helper=', 'clone', '--progress']
+    command = ['git', 'clone', '--progress']
     if job.branch:
         command += ['--branch', job.branch, '--single-branch']
     return command + ['--', f'https://github.com/{job.owner}/{job.repository}.git', str(job.destination)]

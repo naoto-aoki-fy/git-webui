@@ -20,7 +20,7 @@ Leave the location empty to save under `./clones/`. Override this default with `
 
 The UI provides live output, cancellation, automatic scrolling, log copying, and recent jobs. Closing or refreshing the browser does not stop a clone. Jobs and logs live in memory: restarting the server clears history but keeps cloned files. The server retains the latest 100 jobs and 2,000 output events per job; the browser displays up to 500,000 log characters. Cancelled or failed clones may leave partial files at the displayed destination. At most three jobs run at once. Shutdown stops active Git processes.
 
-Public repositories work without authentication. Private repositories require credentials already configured on the server (for example, a server-side `.netrc` file); interactive prompts and credential helpers are disabled. The UI does not accept GitHub tokens. Git failures appear in the console.
+Public repositories work without authentication. Private repositories require credentials already configured on the server (for example, through a Git credential helper or a server-side `.netrc` file). Git uses configured credential helpers; interactive prompts remain disabled. The UI does not accept GitHub tokens. Git failures appear in the console.
 
 The default binding is local. The app has no user authentication; use an authenticated reverse proxy before making it accessible to other users. Visitors share the server's jobs and filesystem. URLs are restricted to GitHub, inputs are validated, and subprocess arguments are passed without a shell.
 
