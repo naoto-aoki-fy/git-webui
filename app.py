@@ -10,6 +10,7 @@ from pathlib import Path
 
 from aiohttp import web
 from clone_jobs import Job, run_clone
+from filesystem import browse_directories, prepare_location
 
 STATIC = Path(__file__).parent / 'static'
 MAX_JOBS = 100
@@ -38,6 +39,23 @@ async def index(request):
     return web.FileResponse(STATIC / 'index.html')
 
 
+async def filesystem_call(function, *args):
+    try:
+        return await asyncio.to_thread(function, *args)
+    except (ValueError, RuntimeError):
+        raise web.HTTPBadRequest(reason='Enter a valid folder path.')
+    except PermissionError:
+        raise web.HTTPForbidden(reason='The server does not have permission to access this folder.')
+    except OSError:
+        raise web.HTTPBadRequest(reason='The folder could not be accessed. Check the path and server permissions.')
+
+
+async def list_directories(request):
+    result = await filesystem_call(
+        browse_directories, request.query.get('path', ''), request.app[ROOT])
+    return web.json_response(result)
+
+
 async def create_clone(request):
     try:
         payload = await request.json()
@@ -61,7 +79,13 @@ async def create_clone(request):
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         if await check.wait() != 0:
             raise web.HTTPBadRequest(reason='Enter a valid Git branch name.')
+    location = payload.get('location', '')
+    if not isinstance(location, str):
+        raise web.HTTPBadRequest(reason='Clone location must be a string.')
     jobs = request.app[JOBS]
+    if sum(job.status in {'queued', 'running'} for job in jobs.values()) >= MAX_ACTIVE:
+        raise web.HTTPTooManyRequests(reason='Three clones are already running. Wait for one to finish.')
+    root = await filesystem_call(prepare_location, location, request.app[ROOT])
     if sum(job.status in {'queued', 'running'} for job in jobs.values()) >= MAX_ACTIVE:
         raise web.HTTPTooManyRequests(reason='Three clones are already running. Wait for one to finish.')
     while len(jobs) >= MAX_JOBS:
@@ -70,8 +94,6 @@ async def create_clone(request):
             break
         del jobs[completed]
     identifier = uuid.uuid4().hex
-    root = request.app[ROOT]
-    root.mkdir(parents=True, exist_ok=True)
     job = Job(identifier, owner, repository, branch, root / f'{owner}--{repository}--{identifier}')
     jobs[job.id] = job
     job.task = asyncio.create_task(run_clone(job))
@@ -143,6 +165,7 @@ def create_app(clone_root=None):
     app[JOBS] = {}
     app[ROOT] = Path(clone_root or os.environ.get('CLONE_ROOT', 'clones')).resolve()
     app.router.add_get('/', index)
+    app.router.add_get('/api/directories', list_directories)
     app.router.add_get('/api/clones', list_clones)
     app.router.add_post('/api/clones', create_clone)
     app.router.add_get('/api/clones/{id}/events', stream_events)

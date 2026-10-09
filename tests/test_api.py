@@ -17,7 +17,12 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.app = create_app(self.temp.name)
         self.client = TestClient(TestServer(self.app))
-        await self.client.start_server()
+        try:
+            await self.client.start_server()
+        except PermissionError:
+            await self.client.close()
+            self.temp.cleanup()
+            self.skipTest('This environment does not allow opening HTTP sockets')
 
     async def asyncTearDown(self):
         await self.client.close()
@@ -91,3 +96,43 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status, 200)
             await asyncio.wait_for(job.task, 2)
             self.assertEqual(job.status, 'cancelled')
+
+    async def test_directory_browser_and_invalid_paths(self):
+        root = Path(self.temp.name)
+        (root / 'folder with spaces').mkdir()
+        (root / 'ignore.txt').touch()
+        response = await self.client.get('/api/directories')
+        self.assertEqual(response.status, 200)
+        data = await response.json()
+        self.assertEqual(data['path'], str(root))
+        self.assertEqual(data['directories'], [{'name': 'folder with spaces', 'path': str(root / 'folder with spaces')}])
+        for path in [str(root / 'ignore.txt'), str(root / 'missing'), 'bad\x00path']:
+            response = await self.client.get('/api/directories', params={'path': path})
+            self.assertEqual(response.status, 400)
+            self.assertIn('error', await response.json())
+        with patch('app.browse_directories', side_effect=PermissionError):
+            response = await self.client.get('/api/directories')
+            self.assertEqual(response.status, 403)
+
+    async def test_custom_clone_location_and_errors(self):
+        async def fake_clone(job):
+            job.status = 'succeeded'
+            await job.publish('done', job.summary())
+        custom = Path(self.temp.name) / 'custom folder' / 'new'
+        with patch('app.run_clone', fake_clone):
+            response = await self.client.post('/api/clones', json={
+                'owner': 'octocat', 'repository': 'demo', 'location': str(custom)})
+            self.assertEqual(response.status, 202)
+            job = await response.json()
+            self.assertEqual(Path(job['destination']).parent, custom)
+            self.assertTrue(custom.is_dir())
+        file = Path(self.temp.name) / 'file.txt'
+        file.touch()
+        for location in [12, 'bad\x00path', str(file)]:
+            response = await self.client.post('/api/clones', json={
+                'owner': 'octocat', 'repository': 'demo', 'location': location})
+            self.assertEqual(response.status, 400)
+        with patch('app.prepare_location', side_effect=PermissionError):
+            response = await self.client.post('/api/clones', json={
+                'owner': 'octocat', 'repository': 'demo', 'location': str(custom)})
+            self.assertEqual(response.status, 403)

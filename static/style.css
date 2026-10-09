@@ -135,3 +135,21 @@ footer{gap:15px}
 .output-heading{padding:22px}
 .workspace-label .online-dot{box-shadow:none}
 }
+
+.location-field{display:flex;align-items:stretch;gap:8px}
+.location-field>input{min-width:0;flex:1;border:1px solid var(--line);border-radius:6px;padding:12px 13px;background:var(--surface);font:12px var(--mono);color:var(--ink);height:43px}
+.secondary{border:1px solid var(--line);border-radius:6px;padding:10px 12px;background:var(--surface);color:var(--accent);font-size:12px;white-space:nowrap}
+.secondary:hover:not(:disabled){background:var(--accent-soft)}
+button:disabled{cursor:default}
+#folder-dialog{width:min(560px,calc(100% - 32px));max-height:85vh;border:1px solid var(--line);border-radius:13px;padding:24px;background:var(--surface);color:var(--ink);overflow:auto}
+#folder-dialog::backdrop{background:#00000080}
+.folder-heading,.folder-navigation,.folder-actions{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.folder-path-form>label{display:block;margin:16px 0 8px;font-size:12px;font-weight:600}
+.folder-navigation{justify-content:flex-start;margin-top:12px;flex-wrap:wrap}
+.folder-current{font:11px/1.6 var(--mono);overflow-wrap:anywhere;color:var(--muted)}
+.folder-list{height:260px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:6px}
+.folder-list>button{display:block;width:100%;border:0;border-radius:4px;padding:12px;text-align:left;background:var(--surface);color:var(--ink);font:12px var(--mono);overflow-wrap:anywhere}
+.folder-list>button:hover{background:var(--accent-soft);color:var(--accent)}
+.folder-list>p{padding:8px;color:var(--muted);font-size:12px}
+.folder-actions{justify-content:flex-end;margin-top:18px}
+.folder-actions .primary{width:auto}

@@ -140,3 +140,73 @@ $('auto-scroll').addEventListener('change', () => {
 });
 refreshJobs().catch((error) => showError(`Unable to load clones: ${error.message}`));
 setInterval(() => refreshJobs().catch(() => {}), 5000);
+
+let folderPath = null;
+let parentPath = null;
+let folderRequest = 0;
+
+async function loadFolders(path = '') {
+  const requestId = ++folderRequest;
+  folderPath = null;
+  parentPath = null;
+  $('select-folder').disabled = true;
+  $('folder-up').disabled = true;
+  $('folder-error').hidden = true;
+  $('folder-current').textContent = 'Loading folders…';
+  $('folder-list').replaceChildren();
+  try {
+    const data = await api(`/api/directories?path=${encodeURIComponent(path)}`);
+    if (requestId !== folderRequest) return;
+    folderPath = data.path;
+    parentPath = data.parent;
+    $('folder-path').value = data.path;
+    $('folder-current').textContent = data.path;
+    $('location').placeholder = data.default_location;
+    $('select-folder').disabled = false;
+    $('folder-up').disabled = !data.parent;
+    for (const folder of data.directories) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = `▸ ${folder.name}`;
+      button.setAttribute('aria-label', `Open folder ${folder.name}`);
+      button.addEventListener('click', () => loadFolders(folder.path));
+      $('folder-list').append(button);
+    }
+    if (!data.directories.length) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No subfolders. You can select this folder.';
+      $('folder-list').append(empty);
+    }
+  } catch (error) {
+    if (requestId !== folderRequest) return;
+    $('folder-current').textContent = '';
+    $('folder-error').textContent = error.message;
+    $('folder-error').hidden = false;
+  }
+}
+
+$('browse-location').addEventListener('click', () => {
+  $('folder-dialog').showModal();
+  $('folder-path').value = $('location').value.trim();
+  loadFolders($('location').value.trim());
+});
+$('folder-path-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  loadFolders($('folder-path').value.trim());
+});
+$('folder-path').addEventListener('input', () => {
+  $('select-folder').disabled = $('folder-path').value.trim() !== folderPath;
+});
+$('folder-up').addEventListener('click', () => {
+  if (parentPath) loadFolders(parentPath);
+});
+$('folder-default').addEventListener('click', () => loadFolders());
+$('select-folder').addEventListener('click', () => {
+  if (!folderPath) return;
+  $('location').value = folderPath;
+  $('folder-dialog').close();
+});
+for (const id of ['close-folder', 'cancel-folder']) {
+  $(id).addEventListener('click', () => $('folder-dialog').close());
+}
+$('folder-dialog').addEventListener('close', () => { folderRequest += 1; });

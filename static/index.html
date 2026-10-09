@@ -28,6 +28,12 @@
           <label for="branch">Branch <span>OPTIONAL</span></label>
           <input id="branch" name="branch" placeholder="Default branch" maxlength="255" autocomplete="off" spellcheck="false">
           <p class="field-note">Leave empty to use the repository’s default branch.</p>
+          <label for="location">Clone location <span>OPTIONAL</span></label>
+          <div class="location-field">
+            <input id="location" name="location" placeholder="Server’s default clone folder" maxlength="4096" autocomplete="off" spellcheck="false" aria-describedby="location-note">
+            <button id="browse-location" class="secondary" type="button" aria-haspopup="dialog">Browse…</button>
+          </div>
+          <p id="location-note" class="field-note">A new repository folder is created here on the server. Missing folders are created automatically.</p>
           <p id="form-error" class="form-error" role="alert" hidden></p>
           <button id="clone-button" class="primary" type="submit"><span>Clone repository</span><span aria-hidden="true">↗</span></button>
         </form>
@@ -47,5 +53,18 @@
     <section class="history" aria-labelledby="history-title"><div class="history-header"><h2 id="history-title">Recent clones</h2><span id="history-count">THIS SESSION</span></div><div id="history-list"><p class="history-empty">Your cloned repositories will appear here.</p></div></section>
     <footer><span>Small tool. Fresh possibilities.</span><span>BUILT ON GIT <span aria-hidden="true">↗</span></span></footer>
   </main>
+  <dialog id="folder-dialog" aria-labelledby="folder-title" aria-describedby="folder-description">
+    <div class="folder-heading"><h2 id="folder-title">Choose clone location</h2><button id="close-folder" class="secondary" type="button" aria-label="Close folder picker">✕</button></div>
+    <p id="folder-description" class="field-note">Browse folders on the machine running this server.</p>
+    <form id="folder-path-form" class="folder-path-form">
+      <label for="folder-path">Folder path</label>
+      <div class="location-field"><input id="folder-path" autocomplete="off" spellcheck="false" autofocus><button class="secondary" type="submit">Go</button></div>
+    </form>
+    <div class="folder-navigation"><button id="folder-up" class="secondary" type="button" disabled>↑ Parent folder</button><button id="folder-default" class="secondary" type="button">Default location</button></div>
+    <p id="folder-error" class="form-error" role="alert" hidden></p>
+    <p id="folder-current" class="folder-current" role="status"></p>
+    <div id="folder-list" class="folder-list" aria-label="Folders"></div>
+    <div class="folder-actions"><button id="cancel-folder" class="secondary" type="button">Cancel</button><button id="select-folder" class="primary" type="button" disabled>Use this folder</button></div>
+  </dialog>
 </body>
 </html>
