@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111a19">
+  <title>Branch / GitHub clone workspace</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Branch home"><span class="brand-icon">⑂</span> branch<span class="brand-dot">.</span></a>
+    <span class="workspace-label">LOCAL WORKSPACE <span class="online-dot"></span></span>
+  </header>
+  <main>
+    <div class="intro"><span class="eyebrow">FROM GITHUB TO YOUR WORKSPACE</span><h1>A fresh start,<br>one clone away.</h1><p>Bring a repository home. Follow every step as it happens.</p></div>
+    <div class="workspace">
+      <section class="card clone-card" aria-labelledby="clone-title">
+        <div class="card-heading"><span class="section-number">01</span><h2 id="clone-title">Clone a repository</h2></div>
+        <form id="clone-form">
+          <label for="owner">Repository owner <span>REQUIRED</span></label>
+          <input id="owner" name="owner" placeholder="e.g. octocat" required maxlength="39" autocomplete="off" spellcheck="false">
+          <label for="repository">Repository name <span>REQUIRED</span></label>
+          <input id="repository" name="repository" placeholder="e.g. Hello-World" required maxlength="100" autocomplete="off" spellcheck="false">
+          <div class="repo-preview" id="repo-preview">github.com / owner / repository</div>
+          <label for="branch">Branch <span>OPTIONAL</span></label>
+          <input id="branch" name="branch" placeholder="Default branch" maxlength="255" autocomplete="off" spellcheck="false">
+          <p class="field-note">Leave empty to use the repository’s default branch.</p>
+          <p id="form-error" class="form-error" role="alert" hidden></p>
+          <button id="clone-button" class="primary" type="submit"><span>Clone repository</span><span aria-hidden="true">↗</span></button>
+        </form>
+        <div class="local-note"><span aria-hidden="true">⌁</span><p>Cloned files are saved on the server.<br>No GitHub sign-in required for public repositories.</p></div>
+      </section>
+      <section class="card output-card" aria-labelledby="output-title">
+        <div class="card-heading output-heading"><div><span class="section-number">02</span><h2 id="output-title">Live output</h2></div><span id="status" class="status" role="status">Ready</span></div>
+        <div class="terminal-toolbar"><span><span class="terminal-dots" aria-hidden="true">● ● ●</span> git / console</span><div><button id="copy-output" class="text-button" type="button">Copy log</button><button id="cancel-button" class="text-button cancel" type="button" hidden>Cancel</button></div></div>
+        <div class="terminal" id="terminal">
+          <div id="empty-output" class="empty-output"><span class="empty-symbol" aria-hidden="true">&gt;_</span><h3>Your next project starts here.</h3><p>Enter a repository and start cloning.<br>Command output will appear in real time.</p><span class="waiting"><span></span> WAITING FOR A REPOSITORY</span></div>
+          <pre id="output" tabindex="0" aria-label="Git command output" hidden></pre>
+        </div>
+        <div class="output-footer"><label class="follow"><input id="auto-scroll" type="checkbox" checked> Auto-scroll</label><span id="output-note">Direct Git commands. Live progress.</span></div>
+        <div id="destination" class="destination" hidden></div>
+      </section>
+    </div>
+    <section class="history" aria-labelledby="history-title"><div class="history-header"><h2 id="history-title">Recent clones</h2><span id="history-count">THIS SESSION</span></div><div id="history-list"><p class="history-empty">Your cloned repositories will appear here.</p></div></section>
+    <footer><span>Small tool. Fresh possibilities.</span><span>BUILT ON GIT <span aria-hidden="true">↗</span></span></footer>
+  </main>
+</body>
+</html>
