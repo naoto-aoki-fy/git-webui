@@ -18,6 +18,8 @@ Use the **Clone location** textbox to enter a server-side parent folder, or **Br
 
 Leave the location empty to save under `./clones/`. Override this default with `--clone-root /path/to/clones` or the `CLONE_ROOT` environment variable. `--host` and `--port` configure the listening address.
 
+Use **Folder name format** to customize the final folder inside the clone location. The default is `{date}-{repo}`, for example `20261009-Hello-World`. Supported placeholders are `{owner}`, `{repo}`, `{id}` (the clone job ID), and `{date}` (the server’s local date as `YYYYMMDD`). Use `{owner}--{repo}--{id}` for the previous naming style. Leaving the format empty uses the default. Names must be a single folder name of at most 200 UTF-8 bytes, without slashes or control characters. If a name already exists or is used by another retained job, the job ID is appended to keep destinations separate.
+
 The UI provides live output, cancellation, automatic scrolling, log copying, and recent jobs. Closing or refreshing the browser does not stop a clone. Jobs and logs live in memory: restarting the server clears history but keeps cloned files. The server retains the latest 100 jobs and 2,000 output events per job; the browser displays up to 500,000 log characters. Cancelled or failed clones may leave partial files at the displayed destination. At most three jobs run at once. Shutdown stops active Git processes.
 
 Public repositories work without authentication. Private repositories require credentials already configured on the server (for example, through a Git credential helper or a server-side `.netrc` file). Git uses configured credential helpers; interactive prompts remain disabled. The UI does not accept GitHub tokens. Git failures appear in the console.
@@ -26,7 +28,7 @@ The default binding is local. The app has no user authentication; use an authent
 
 ## API
 
-- `POST /api/clones`: JSON `{ "owner": "octocat", "repository": "Hello-World", "branch": "", "location": "" }`; returns the job with HTTP 202.
+- `POST /api/clones`: JSON `{ "owner": "octocat", "repository": "Hello-World", "branch": "", "location": "", "folder_format": "{date}-{repo}" }`; returns the job with HTTP 202.
 - `GET /api/directories?path=/path/to/folder`: lists server-side subfolders, the parent path, and the configured default clone location. Omit `path` to browse the default folder (or its nearest existing parent).
 - `GET /api/clones`: retained jobs, newest first.
 - `GET /api/clones/{id}/events`: SSE `status`, `output`, and terminal `done` events. Supports reconnection through `Last-Event-ID`.

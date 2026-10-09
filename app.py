@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from aiohttp import web
@@ -17,6 +18,22 @@ MAX_JOBS = 100
 MAX_ACTIVE = 3
 JOBS = web.AppKey('jobs', dict)
 ROOT = web.AppKey('root', Path)
+DEFAULT_FOLDER_FORMAT = '{date}-{repo}'
+
+
+def format_folder(value, owner, repository, identifier):
+    if not isinstance(value, str):
+        raise web.HTTPBadRequest(reason='Folder name format must be a string.')
+    value = value.strip() or DEFAULT_FOLDER_FORMAT
+    tokens = {'owner': owner, 'repo': repository, 'id': identifier,
+              'date': datetime.now().strftime('%Y%m%d')}
+    name = re.sub(r'\{(owner|repo|id|date)\}', lambda match: tokens[match[1]], value)
+    if '{' in name or '}' in name:
+        raise web.HTTPBadRequest(reason='Use only {owner}, {repo}, {id}, and {date} in the folder name format.')
+    if (name in {'.', '..'} or len(name.encode('utf-8')) > 200
+            or any(char in '/\\' or ord(char) < 32 or ord(char) == 127 for char in name)):
+        raise web.HTTPBadRequest(reason='Folder name must be a single name of at most 200 bytes, without slashes or control characters.')
+    return name
 
 
 @web.middleware
@@ -82,6 +99,9 @@ async def create_clone(request):
     location = payload.get('location', '')
     if not isinstance(location, str):
         raise web.HTTPBadRequest(reason='Clone location must be a string.')
+    identifier = uuid.uuid4().hex
+    folder = format_folder(payload.get('folder_format', DEFAULT_FOLDER_FORMAT),
+                           owner, repository, identifier)
     jobs = request.app[JOBS]
     if sum(job.status in {'queued', 'running'} for job in jobs.values()) >= MAX_ACTIVE:
         raise web.HTTPTooManyRequests(reason='Three clones are already running. Wait for one to finish.')
@@ -93,8 +113,10 @@ async def create_clone(request):
         if completed is None:
             break
         del jobs[completed]
-    identifier = uuid.uuid4().hex
-    job = Job(identifier, owner, repository, branch, root / f'{owner}--{repository}--{identifier}')
+    destination = root / folder
+    if destination.exists() or destination.is_symlink() or any(job.destination == destination for job in jobs.values()):
+        destination = root / f'{folder}-{identifier}'
+    job = Job(identifier, owner, repository, branch, destination)
     jobs[job.id] = job
     job.task = asyncio.create_task(run_clone(job))
     return web.json_response(job.summary(), status=202)

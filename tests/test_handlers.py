@@ -5,9 +5,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from datetime import datetime
 
 try:
-    from app import cleanup, create_app, create_clone, errors, list_directories
+    from app import JOBS, cleanup, create_app, create_clone, errors, list_directories
 except ImportError:
     create_app = None
 
@@ -47,6 +48,41 @@ class DestinationHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 202)
         self.assertEqual(Path(data['destination']).parent, custom)
         self.assertTrue(custom.is_dir())
+
+    async def test_folder_formats_and_collisions(self):
+        async def fake_clone(job):
+            job.status = 'succeeded'
+        with patch('app.run_clone', fake_clone), patch('app.datetime') as clock:
+            clock.now.return_value = datetime(2026, 10, 9)
+            for value in [None, '', '{owner}--{repo}--{id}', '{date}_{owner}_{repo}_{id}']:
+                payload = {'owner': 'octocat', 'repository': 'demo'}
+                if value is not None:
+                    payload['folder_format'] = value
+                status, data = await self.request(create_clone, payload=payload)
+                self.assertEqual(status, 202)
+                await self.app[JOBS][data['id']].task
+                name = Path(data['destination']).name
+                if value == '{owner}--{repo}--{id}':
+                    self.assertEqual(name, f"octocat--demo--{data['id']}")
+                elif value == '{date}_{owner}_{repo}_{id}':
+                    self.assertEqual(name, f"20261009_octocat_demo_{data['id']}")
+                else:
+                    self.assertEqual(name, '20261009-demo' if value is None else f"20261009-demo-{data['id']}")
+            (self.root / 'existing').mkdir()
+            status, data = await self.request(create_clone, payload={
+                'owner': 'octocat', 'repository': 'demo', 'folder_format': 'existing'})
+            self.assertEqual(status, 202)
+            self.assertEqual(Path(data['destination']).name, f"existing-{data['id']}")
+
+    async def test_invalid_folder_formats(self):
+        for value in [12, None, '../{repo}', '/tmp/{repo}', r'folder\{repo}',
+                      '.', '..', '{unknown}', '{repo', '{repo.__class__}',
+                      '{id:8}', 'bad\x00name', 'a' * 201, 'あ' * 67]:
+            with self.subTest(value=value):
+                status, data = await self.request(create_clone, payload={
+                    'owner': 'octocat', 'repository': 'demo', 'folder_format': value})
+                self.assertEqual(status, 400)
+                self.assertIn('error', data)
 
     async def test_browse_returns_folders_and_parent(self):
         (self.root / 'folder').mkdir()

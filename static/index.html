@@ -34,6 +34,9 @@
             <button id="browse-location" class="secondary" type="button" aria-haspopup="dialog">Browse…</button>
           </div>
           <p id="location-note" class="field-note">A new repository folder is created here on the server. Missing folders are created automatically.</p>
+          <label for="folder-format">Folder name format <span>OPTIONAL</span></label>
+          <input id="folder-format" name="folder_format" value="{date}-{repo}" placeholder="{date}-{repo}" maxlength="200" autocomplete="off" spellcheck="false" aria-describedby="folder-format-note">
+          <p id="folder-format-note" class="field-note">Use {owner}, {repo}, {id}, or {date} (YYYYMMDD, server’s local date). Default: {date}-{repo}. An ID is appended if the folder name is already taken.</p>
           <p id="form-error" class="form-error" role="alert" hidden></p>
           <button id="clone-button" class="primary" type="submit"><span>Clone repository</span><span aria-hidden="true">↗</span></button>
         </form>
