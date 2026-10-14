@@ -797,6 +797,9 @@ const toggleCommitField = () => {
     const syncsSingleBranch = isMirrorMode
         && document.querySelector("input[name='sync_push_option']:checked")?.value === "branch";
     const isAddFileMode = modeConfig.addsFiles === true;
+    if (isAddFileMode) {
+        allowEmptyCommit.checked = false;
+    }
     submitButton.textContent = isAddFileMode ? "Add File & Push" : "Apply Patch & Push";
     if (repositoryLabel) {
         repositoryLabel.textContent = isMirrorMode ? "Repository A (sync source)" : "Repository";
